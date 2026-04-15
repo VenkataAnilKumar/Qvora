@@ -15,11 +15,4 @@ pre-commit:
 commit-msg:
   commands:
     conventional-commit:
-      run: |
-        msg=$(cat {1})
-        pattern='^(feat|fix|chore|docs|style|refactor|test|perf|ci|build|revert)(\(.+\))?: .{1,100}$'
-        if ! echo "$msg" | grep -qE "$pattern"; then
-          echo "ERROR: Commit message must follow Conventional Commits format"
-          echo "  e.g. feat(web): add video generation form"
-          exit 1
-        fi
+      run: node scripts/validate-commit-msg.js "{1}"
