@@ -41,6 +41,7 @@ struct MuxCreateAssetRequest {
     input: MuxInput,
     playback_policy: Vec<String>, // ["signed","public"]
     test: bool,                     // Use test environment
+    passthrough: String,            // Variant ID for webhook correlation
 }
 
 #[derive(Debug, Serialize)]
@@ -60,7 +61,7 @@ impl MuxClient {
     /// Upload video from R2 URL to Mux
     ///
     /// Creates a new Mux asset with the video URL and returns asset_id + playback_id
-    pub async fn upload_from_url(&self, r2_video_url: &str) -> Result<MuxUploadResult> {
+    pub async fn upload_from_url(&self, r2_video_url: &str, variant_id: &str) -> Result<MuxUploadResult> {
         info!(url = %r2_video_url, "uploading to Mux");
 
         let req = MuxCreateAssetRequest {
@@ -69,6 +70,7 @@ impl MuxClient {
             },
             playback_policy: vec!["signed".to_string()], // Workspace-scoped access only
             test: false,
+            passthrough: variant_id.to_string(),
         };
 
         let response = self
@@ -162,7 +164,7 @@ impl MuxClient {
         let mut mac = HmacSha256::new_from_slice(self.secret_token.as_bytes())?;
         mac.update(message.as_bytes());
         let signature_bytes = mac.finalize().into_bytes();
-        let signature_b64 = base64_url_encode(&hex::encode(&signature_bytes));
+        let signature_b64 = base64_url_encode_bytes(&signature_bytes);
 
         let token = format!("{}.{}", message, signature_b64);
 
@@ -179,7 +181,8 @@ impl MuxClient {
     #[allow(dead_code)]
     pub fn playback_url(_playback_id: &str, token: &str) -> String {
         format!(
-            "https://image.mux.com/7U8c2Q/low.mp4?token={}",
+            "https://stream.mux.com/{}.m3u8?token={}",
+            _playback_id,
             token
         )
     }
@@ -211,4 +214,9 @@ struct MuxTokenPayload {
 fn base64_url_encode(input: &str) -> String {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     URL_SAFE_NO_PAD.encode(input.as_bytes())
+}
+
+fn base64_url_encode_bytes(input: &[u8]) -> String {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    URL_SAFE_NO_PAD.encode(input)
 }

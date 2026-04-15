@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/labstack/echo/v4"
+	"github.com/qvora/api/internal/db"
 	"go.uber.org/zap"
 )
 
@@ -30,7 +32,7 @@ func MuxWebhook(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid_signature"})
 	}
 
-	// Parse payload
+	// Parse payload envelope
 	var payload MuxWebhookPayload
 	if err := json.Unmarshal(body, &payload); err != nil {
 		zap.L().Error("failed to parse mux payload", zap.Error(err))
@@ -43,39 +45,56 @@ func MuxWebhook(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]bool{"received": true})
 	}
 
-	// Extract asset ID from nested data
-	assetData, ok := payload.Data.(map[string]interface{})
-	if !ok {
-		zap.L().Error("invalid mux asset data format")
+	// Parse typed asset data.
+	var assetData muxAssetData
+	if err := json.Unmarshal(payload.Data, &assetData); err != nil {
+		zap.L().Error("invalid mux asset data format", zap.Error(err))
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_data_format"})
 	}
 
-	assetID, _ := assetData["id"].(string)
-	if assetID == "" {
+	if assetData.ID == "" {
 		zap.L().Error("no asset_id in mux payload")
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing_asset_id"})
 	}
-
-	// Get playback_ids array and extract the first one
-	playbackIDsRaw, _ := assetData["playback_ids"].([]interface{})
-	playbackID := ""
-	if len(playbackIDsRaw) > 0 {
-		if pidMap, ok := playbackIDsRaw[0].(map[string]interface{}); ok {
-			playbackID, _ = pidMap["id"].(string)
-		}
+	if assetData.Passthrough == "" {
+		zap.L().Error("no passthrough variant_id in mux payload", zap.String("asset_id", assetData.ID))
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing_passthrough"})
 	}
 
-	// TODO: Update variant in database
-	// - Find variant where we need to associate Mux data
-	// - Update mux_asset_id = assetID
-	// - Update mux_playback_id = playbackID
-	// - Update status = "complete"
-	// - Update updated_at = NOW()
-	// Use query: db.UpdateVariantByAssetId(ctx, assetID, playbackID)
+	playbackID := ""
+	if len(assetData.PlaybackIDs) > 0 {
+		playbackID = assetData.PlaybackIDs[0].ID
+	}
+	if playbackID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing_playback_id"})
+	}
+
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		zap.L().Error("database unavailable for mux webhook", zap.Error(err))
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
+	}
+
+	var variantID pgtype.UUID
+	if err := variantID.Scan(assetData.Passthrough); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_variant_id"})
+	}
+
+	updated, err := q.UpdateVariantMuxByID(c.Request().Context(), db.UpdateVariantMuxByIDParams{
+		ID:            variantID,
+		MuxAssetID:    &assetData.ID,
+		MuxPlaybackID: &playbackID,
+	})
+	if err != nil {
+		zap.L().Error("failed to update variant from mux webhook", zap.Error(err))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "variant_update_failed"})
+	}
 
 	zap.L().Info("mux webhook received",
-		zap.String("asset_id", assetID),
+		zap.String("variant_id", assetData.Passthrough),
+		zap.String("asset_id", assetData.ID),
 		zap.String("playback_id", playbackID),
+		zap.String("variant_status", updated.Status),
 		zap.String("event_type", payload.Type))
 
 	return c.JSON(http.StatusOK, map[string]bool{"received": true})
@@ -84,10 +103,18 @@ func MuxWebhook(c echo.Context) error {
 // MuxWebhookPayload represents the webhook event from Mux
 type MuxWebhookPayload struct {
 	Type        string      `json:"type"`        // "video.asset.ready", "video.asset.errored", etc.
-	Data        interface{} `json:"data"`        // Asset data (id, playback_ids, etc.)
+	Data        json.RawMessage `json:"data"`    // Asset data (id, playback_ids, passthrough)
 	CreatedAt   string      `json:"created_at"`  // ISO timestamp
 	EventID     string      `json:"id"`          // Webhook event ID (for dedup)
 	Attemptnum  int         `json:"attemptnum"`  // Retry attempt
+}
+
+type muxAssetData struct {
+	ID          string `json:"id"`
+	Passthrough string `json:"passthrough"`
+	PlaybackIDs []struct {
+		ID string `json:"id"`
+	} `json:"playback_ids"`
 }
 
 // verifyMuxSignature verifies the HMAC-SHA256 signature

@@ -18,6 +18,7 @@ type Querier interface {
 	CreateVariant(ctx context.Context, arg CreateVariantParams) (Variant, error)
 	GetBriefByID(ctx context.Context, arg GetBriefByIDParams) (Brief, error)
 	GetJobByID(ctx context.Context, arg GetJobByIDParams) (Job, error)
+	GetVariantForPlayback(ctx context.Context, arg GetVariantForPlaybackParams) (Variant, error)
 	GetWorkspaceByOrgID(ctx context.Context, orgID string) (Workspace, error)
 	ListBriefAngles(ctx context.Context, briefID pgtype.UUID) ([]BriefAngle, error)
 	ListBriefHooks(ctx context.Context, briefID pgtype.UUID) ([]BriefHook, error)
@@ -26,8 +27,8 @@ type Querier interface {
 	ListVariantsByJob(ctx context.Context, jobID pgtype.UUID) ([]Variant, error)
 	UpdateBriefStatus(ctx context.Context, arg UpdateBriefStatusParams) (Brief, error)
 	UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams) (Job, error)
-	UpdateVariantByAssetId(ctx context.Context, arg UpdateVariantByAssetIdParams) (Variant, error)
 	UpdateVariantComplete(ctx context.Context, arg UpdateVariantCompleteParams) (Variant, error)
+	UpdateVariantMuxByID(ctx context.Context, arg UpdateVariantMuxByIDParams) (Variant, error)
 	UpsertWorkspace(ctx context.Context, arg UpsertWorkspaceParams) (Workspace, error)
 }
 

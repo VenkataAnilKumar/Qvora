@@ -52,7 +52,10 @@ impl ProcessorConfig {
         info!(variant_id = %self.variant_id, "uploaded to R2");
 
         // Step 4: Upload to Mux HLS from R2 URL
-        let mux_result = self.mux_client.upload_from_url(&r2_presigned_url).await?;
+        let mux_result = self
+            .mux_client
+            .upload_from_url(&r2_presigned_url, &self.variant_id)
+            .await?;
         info!(
             variant_id = %self.variant_id,
             asset_id = %mux_result.asset_id,

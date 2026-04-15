@@ -224,6 +224,37 @@ func (q *Queries) GetJobByID(ctx context.Context, arg GetJobByIDParams) (Job, er
 	return i, err
 }
 
+const getVariantForPlayback = `-- name: GetVariantForPlayback :one
+SELECT id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at FROM variants
+WHERE id = $1 AND workspace_id = $2
+LIMIT 1
+`
+
+type GetVariantForPlaybackParams struct {
+	ID          pgtype.UUID `db:"id" json:"id"`
+	WorkspaceID pgtype.UUID `db:"workspace_id" json:"workspace_id"`
+}
+
+func (q *Queries) GetVariantForPlayback(ctx context.Context, arg GetVariantForPlaybackParams) (Variant, error) {
+	row := q.db.QueryRow(ctx, getVariantForPlayback, arg.ID, arg.WorkspaceID)
+	var i Variant
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.WorkspaceID,
+		&i.Angle,
+		&i.Status,
+		&i.FalRequestID,
+		&i.MuxAssetID,
+		&i.MuxPlaybackID,
+		&i.R2Key,
+		&i.DurationSecs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getWorkspaceByOrgID = `-- name: GetWorkspaceByOrgID :one
 SELECT id, org_id, plan_tier, sub_status, stripe_sub_id, trial_ends_at, created_at, updated_at FROM workspaces
 WHERE org_id = $1
@@ -493,41 +524,6 @@ func (q *Queries) UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams
 	return i, err
 }
 
-const updateVariantByAssetId = `-- name: UpdateVariantByAssetId :one
-UPDATE variants
-SET mux_asset_id    = $1,
-    mux_playback_id = $2,
-    status          = 'complete',
-    updated_at      = NOW()
-WHERE mux_asset_id = $1
-RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at
-`
-
-type UpdateVariantByAssetIdParams struct {
-	MuxAssetID    *string `db:"mux_asset_id" json:"mux_asset_id"`
-	MuxPlaybackID *string `db:"mux_playback_id" json:"mux_playback_id"`
-}
-
-func (q *Queries) UpdateVariantByAssetId(ctx context.Context, arg UpdateVariantByAssetIdParams) (Variant, error) {
-	row := q.db.QueryRow(ctx, updateVariantByAssetId, arg.MuxAssetID, arg.MuxPlaybackID)
-	var i Variant
-	err := row.Scan(
-		&i.ID,
-		&i.JobID,
-		&i.WorkspaceID,
-		&i.Angle,
-		&i.Status,
-		&i.FalRequestID,
-		&i.MuxAssetID,
-		&i.MuxPlaybackID,
-		&i.R2Key,
-		&i.DurationSecs,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
 const updateVariantComplete = `-- name: UpdateVariantComplete :one
 UPDATE variants
 SET status = 'complete',
@@ -556,6 +552,42 @@ func (q *Queries) UpdateVariantComplete(ctx context.Context, arg UpdateVariantCo
 		arg.R2Key,
 		arg.DurationSecs,
 	)
+	var i Variant
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.WorkspaceID,
+		&i.Angle,
+		&i.Status,
+		&i.FalRequestID,
+		&i.MuxAssetID,
+		&i.MuxPlaybackID,
+		&i.R2Key,
+		&i.DurationSecs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateVariantMuxByID = `-- name: UpdateVariantMuxByID :one
+UPDATE variants
+SET mux_asset_id    = $2,
+    mux_playback_id = $3,
+    status          = 'complete',
+    updated_at      = NOW()
+WHERE id = $1
+RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at
+`
+
+type UpdateVariantMuxByIDParams struct {
+	ID            pgtype.UUID `db:"id" json:"id"`
+	MuxAssetID    *string     `db:"mux_asset_id" json:"mux_asset_id"`
+	MuxPlaybackID *string     `db:"mux_playback_id" json:"mux_playback_id"`
+}
+
+func (q *Queries) UpdateVariantMuxByID(ctx context.Context, arg UpdateVariantMuxByIDParams) (Variant, error) {
+	row := q.db.QueryRow(ctx, updateVariantMuxByID, arg.ID, arg.MuxAssetID, arg.MuxPlaybackID)
 	var i Variant
 	err := row.Scan(
 		&i.ID,

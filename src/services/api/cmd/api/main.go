@@ -82,6 +82,10 @@ func main() {
 	assets.GET("", handler.ListAssets)
 	assets.DELETE("/:id", handler.DeleteAsset)
 
+	// Variants
+	variants := v1.Group("/variants", appmiddleware.RequireWorkspace())
+	variants.GET("/:id/playback-url", handler.GetVariantPlaybackURL)
+
 	// Webhooks (no auth middleware — verified by signature)
 	webhooks := e.Group("/webhooks")
 	webhooks.POST("/mux", handler.MuxWebhook)

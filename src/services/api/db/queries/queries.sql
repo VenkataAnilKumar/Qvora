@@ -56,6 +56,11 @@ SELECT * FROM variants
 WHERE job_id = $1
 ORDER BY created_at ASC;
 
+-- name: GetVariantForPlayback :one
+SELECT * FROM variants
+WHERE id = $1 AND workspace_id = $2
+LIMIT 1;
+
 -- name: CreateBrief :one
 INSERT INTO briefs (workspace_id, scrape_job_id, product_url, model, status)
 VALUES ($1, $2, $3, $4, $5)
@@ -98,12 +103,12 @@ SELECT * FROM brief_hooks
 WHERE brief_id = $1
 ORDER BY created_at ASC;
 
--- name: UpdateVariantByAssetId :one
+-- name: UpdateVariantMuxByID :one
 UPDATE variants
-SET mux_asset_id    = $1,
-    mux_playback_id = $2,
+SET mux_asset_id    = $2,
+    mux_playback_id = $3,
     status          = 'complete',
     updated_at      = NOW()
-WHERE mux_asset_id = $1
+WHERE id = $1
 RETURNING *;
 
