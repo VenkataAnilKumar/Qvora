@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import MuxPlayer from "@mux/mux-player-react";
 import {
   Badge,
   Button,
@@ -34,8 +35,18 @@ interface DashboardClientProps {
 }
 
 export function DashboardClient({ planLimitLabel, initialJobs }: DashboardClientProps) {
+  const utils = trpc.useUtils();
   const [url, setUrl] = useState("https://example.com/products/hero-offer");
   const [model, setModel] = useState<VideoModel>("veo3");
+  const [variantId, setVariantId] = useState("");
+  const [playbackLoading, setPlaybackLoading] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [playback, setPlayback] = useState<{
+    variantId: string;
+    playbackId: string;
+    token: string;
+    tokenExpires: string;
+  } | null>(null);
   const [activeJob, setActiveJob] = useState<JobItem | null>(null);
   const [jobs, setJobs] = useState<JobItem[]>(initialJobs);
   const [formError, setFormError] = useState<string | null>(null);
@@ -55,6 +66,32 @@ export function DashboardClient({ planLimitLabel, initialJobs }: DashboardClient
       setFormError(err.message);
     },
   });
+
+  const handleLoadPlayback = async () => {
+    const normalizedVariantID = variantId.trim();
+    if (!normalizedVariantID || playbackLoading) {
+      return;
+    }
+
+    setPlaybackLoading(true);
+    setPlaybackError(null);
+
+    try {
+      const data = await utils.variants.getPlaybackUrl.fetch({ variantId: normalizedVariantID });
+      setPlayback({
+        variantId: data.variantId,
+        playbackId: data.playbackId,
+        token: data.token,
+        tokenExpires: data.tokenExpires,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed_to_load_playback";
+      setPlayback(null);
+      setPlaybackError(message);
+    } finally {
+      setPlaybackLoading(false);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -195,6 +232,59 @@ export function DashboardClient({ planLimitLabel, initialJobs }: DashboardClient
                 </div>
               ))}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-white/8 bg-white/[0.03] xl:col-span-2">
+        <CardHeader>
+          <CardDescription>Variant playback</CardDescription>
+          <CardTitle className="text-2xl">Mux stream validation</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col gap-3 md:flex-row">
+            <Input
+              value={variantId}
+              onChange={(e) => setVariantId(e.target.value)}
+              placeholder="Enter variant UUID"
+              className="md:flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={playbackLoading || !variantId}
+              onClick={handleLoadPlayback}
+            >
+              {playbackLoading ? "Loading…" : "Load playback"}
+            </Button>
+          </div>
+
+          {playbackError ? (
+            <p className="rounded-xl border border-[var(--color-signal-red)]/30 bg-[var(--color-signal-red)]/8 px-4 py-3 text-sm text-[var(--color-signal-red)]">
+              {playbackError}
+            </p>
+          ) : null}
+
+          {playback ? (
+            <div className="space-y-3">
+              <MuxPlayer
+                playbackId={playback.playbackId}
+                tokens={{ playback: playback.token }}
+                metadata={{
+                  video_title: `Variant ${playback.variantId}`,
+                  viewer_user_id: playback.variantId,
+                }}
+                streamType="on-demand"
+                className="aspect-[9/16] w-full max-w-sm overflow-hidden rounded-2xl border border-white/10"
+              />
+              <p className="text-xs text-white/45">
+                Token expires at {new Date(playback.tokenExpires).toLocaleString()}.
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-white/55">
+              Enter a completed variant ID to validate signed playback delivery via Mux.
+            </p>
           )}
         </CardContent>
       </Card>

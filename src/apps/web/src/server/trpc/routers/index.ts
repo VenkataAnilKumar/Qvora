@@ -8,6 +8,7 @@ import { jobsRouter } from "./jobs";
 import { orgRouter } from "./org";
 import { projectsRouter } from "./projects";
 import { systemRouter } from "./system";
+import { variantsRouter } from "./variants";
 import { workspaceRouter } from "./workspace";
 
 export const appRouter = createTRPCRouter({
@@ -20,6 +21,7 @@ export const appRouter = createTRPCRouter({
   org: orgRouter,
   projects: projectsRouter,
   system: systemRouter,
+  variants: variantsRouter,
   workspace: workspaceRouter,
 });
 
