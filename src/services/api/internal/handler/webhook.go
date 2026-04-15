@@ -66,11 +66,12 @@ func MuxWebhook(c echo.Context) error {
 	}
 
 	// TODO: Update variant in database
-	// - Find variant where fal_request_id = payload.Metadata.VariantID (or similar)
+	// - Find variant where we need to associate Mux data
 	// - Update mux_asset_id = assetID
-	// - Update mux_playable_id = playbackID
+	// - Update mux_playback_id = playbackID
 	// - Update status = "complete"
 	// - Update updated_at = NOW()
+	// Use query: db.UpdateVariantByAssetId(ctx, assetID, playbackID)
 
 	zap.L().Info("mux webhook received",
 		zap.String("asset_id", assetID),

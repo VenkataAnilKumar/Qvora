@@ -11,13 +11,22 @@ import (
 )
 
 type Querier interface {
+	CreateBrief(ctx context.Context, arg CreateBriefParams) (Brief, error)
+	CreateBriefAngle(ctx context.Context, arg CreateBriefAngleParams) (BriefAngle, error)
+	CreateBriefHook(ctx context.Context, arg CreateBriefHookParams) (BriefHook, error)
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
 	CreateVariant(ctx context.Context, arg CreateVariantParams) (Variant, error)
+	GetBriefByID(ctx context.Context, arg GetBriefByIDParams) (Brief, error)
 	GetJobByID(ctx context.Context, arg GetJobByIDParams) (Job, error)
 	GetWorkspaceByOrgID(ctx context.Context, orgID string) (Workspace, error)
+	ListBriefAngles(ctx context.Context, briefID pgtype.UUID) ([]BriefAngle, error)
+	ListBriefHooks(ctx context.Context, briefID pgtype.UUID) ([]BriefHook, error)
+	ListBriefsByWorkspace(ctx context.Context, arg ListBriefsByWorkspaceParams) ([]Brief, error)
 	ListJobsByWorkspace(ctx context.Context, arg ListJobsByWorkspaceParams) ([]Job, error)
 	ListVariantsByJob(ctx context.Context, jobID pgtype.UUID) ([]Variant, error)
+	UpdateBriefStatus(ctx context.Context, arg UpdateBriefStatusParams) (Brief, error)
 	UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams) (Job, error)
+	UpdateVariantByAssetId(ctx context.Context, arg UpdateVariantByAssetIdParams) (Variant, error)
 	UpdateVariantComplete(ctx context.Context, arg UpdateVariantCompleteParams) (Variant, error)
 	UpsertWorkspace(ctx context.Context, arg UpsertWorkspaceParams) (Workspace, error)
 }

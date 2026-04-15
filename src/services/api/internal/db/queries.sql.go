@@ -11,6 +11,103 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createBrief = `-- name: CreateBrief :one
+INSERT INTO briefs (workspace_id, scrape_job_id, product_url, model, status)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, workspace_id, scrape_job_id, product_url, model, status, created_at, updated_at
+`
+
+type CreateBriefParams struct {
+	WorkspaceID pgtype.UUID `db:"workspace_id" json:"workspace_id"`
+	ScrapeJobID pgtype.UUID `db:"scrape_job_id" json:"scrape_job_id"`
+	ProductUrl  string      `db:"product_url" json:"product_url"`
+	Model       string      `db:"model" json:"model"`
+	Status      string      `db:"status" json:"status"`
+}
+
+func (q *Queries) CreateBrief(ctx context.Context, arg CreateBriefParams) (Brief, error) {
+	row := q.db.QueryRow(ctx, createBrief,
+		arg.WorkspaceID,
+		arg.ScrapeJobID,
+		arg.ProductUrl,
+		arg.Model,
+		arg.Status,
+	)
+	var i Brief
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ScrapeJobID,
+		&i.ProductUrl,
+		&i.Model,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createBriefAngle = `-- name: CreateBriefAngle :one
+INSERT INTO brief_angles (brief_id, angle, headline, script, cta, voice_tone)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, brief_id, angle, headline, script, cta, voice_tone, created_at
+`
+
+type CreateBriefAngleParams struct {
+	BriefID   pgtype.UUID `db:"brief_id" json:"brief_id"`
+	Angle     string      `db:"angle" json:"angle"`
+	Headline  string      `db:"headline" json:"headline"`
+	Script    string      `db:"script" json:"script"`
+	Cta       string      `db:"cta" json:"cta"`
+	VoiceTone *string     `db:"voice_tone" json:"voice_tone"`
+}
+
+func (q *Queries) CreateBriefAngle(ctx context.Context, arg CreateBriefAngleParams) (BriefAngle, error) {
+	row := q.db.QueryRow(ctx, createBriefAngle,
+		arg.BriefID,
+		arg.Angle,
+		arg.Headline,
+		arg.Script,
+		arg.Cta,
+		arg.VoiceTone,
+	)
+	var i BriefAngle
+	err := row.Scan(
+		&i.ID,
+		&i.BriefID,
+		&i.Angle,
+		&i.Headline,
+		&i.Script,
+		&i.Cta,
+		&i.VoiceTone,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const createBriefHook = `-- name: CreateBriefHook :one
+INSERT INTO brief_hooks (brief_id, hook)
+VALUES ($1, $2)
+RETURNING id, brief_id, hook, created_at
+`
+
+type CreateBriefHookParams struct {
+	BriefID pgtype.UUID `db:"brief_id" json:"brief_id"`
+	Hook    string      `db:"hook" json:"hook"`
+}
+
+func (q *Queries) CreateBriefHook(ctx context.Context, arg CreateBriefHookParams) (BriefHook, error) {
+	row := q.db.QueryRow(ctx, createBriefHook, arg.BriefID, arg.Hook)
+	var i BriefHook
+	err := row.Scan(
+		&i.ID,
+		&i.BriefID,
+		&i.Hook,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createJob = `-- name: CreateJob :one
 INSERT INTO jobs (workspace_id, product_url, model)
 VALUES ($1, $2, $3)
@@ -72,6 +169,33 @@ func (q *Queries) CreateVariant(ctx context.Context, arg CreateVariantParams) (V
 	return i, err
 }
 
+const getBriefByID = `-- name: GetBriefByID :one
+SELECT id, workspace_id, scrape_job_id, product_url, model, status, created_at, updated_at FROM briefs
+WHERE id = $1 AND workspace_id = $2
+LIMIT 1
+`
+
+type GetBriefByIDParams struct {
+	ID          pgtype.UUID `db:"id" json:"id"`
+	WorkspaceID pgtype.UUID `db:"workspace_id" json:"workspace_id"`
+}
+
+func (q *Queries) GetBriefByID(ctx context.Context, arg GetBriefByIDParams) (Brief, error) {
+	row := q.db.QueryRow(ctx, getBriefByID, arg.ID, arg.WorkspaceID)
+	var i Brief
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ScrapeJobID,
+		&i.ProductUrl,
+		&i.Model,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getJobByID = `-- name: GetJobByID :one
 SELECT id, workspace_id, product_url, status, model, brief_json, error_msg, created_at, updated_at FROM jobs
 WHERE id = $1 AND workspace_id = $2
@@ -120,6 +244,114 @@ func (q *Queries) GetWorkspaceByOrgID(ctx context.Context, orgID string) (Worksp
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listBriefAngles = `-- name: ListBriefAngles :many
+SELECT id, brief_id, angle, headline, script, cta, voice_tone, created_at FROM brief_angles
+WHERE brief_id = $1
+ORDER BY created_at ASC
+`
+
+func (q *Queries) ListBriefAngles(ctx context.Context, briefID pgtype.UUID) ([]BriefAngle, error) {
+	rows, err := q.db.Query(ctx, listBriefAngles, briefID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BriefAngle{}
+	for rows.Next() {
+		var i BriefAngle
+		if err := rows.Scan(
+			&i.ID,
+			&i.BriefID,
+			&i.Angle,
+			&i.Headline,
+			&i.Script,
+			&i.Cta,
+			&i.VoiceTone,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBriefHooks = `-- name: ListBriefHooks :many
+SELECT id, brief_id, hook, created_at FROM brief_hooks
+WHERE brief_id = $1
+ORDER BY created_at ASC
+`
+
+func (q *Queries) ListBriefHooks(ctx context.Context, briefID pgtype.UUID) ([]BriefHook, error) {
+	rows, err := q.db.Query(ctx, listBriefHooks, briefID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BriefHook{}
+	for rows.Next() {
+		var i BriefHook
+		if err := rows.Scan(
+			&i.ID,
+			&i.BriefID,
+			&i.Hook,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBriefsByWorkspace = `-- name: ListBriefsByWorkspace :many
+SELECT id, workspace_id, scrape_job_id, product_url, model, status, created_at, updated_at FROM briefs
+WHERE workspace_id = $1
+ORDER BY created_at DESC
+LIMIT $2 OFFSET $3
+`
+
+type ListBriefsByWorkspaceParams struct {
+	WorkspaceID pgtype.UUID `db:"workspace_id" json:"workspace_id"`
+	Limit       int32       `db:"limit" json:"limit"`
+	Offset      int32       `db:"offset" json:"offset"`
+}
+
+func (q *Queries) ListBriefsByWorkspace(ctx context.Context, arg ListBriefsByWorkspaceParams) ([]Brief, error) {
+	rows, err := q.db.Query(ctx, listBriefsByWorkspace, arg.WorkspaceID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Brief{}
+	for rows.Next() {
+		var i Brief
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.ScrapeJobID,
+			&i.ProductUrl,
+			&i.Model,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listJobsByWorkspace = `-- name: ListJobsByWorkspace :many
@@ -204,6 +436,34 @@ func (q *Queries) ListVariantsByJob(ctx context.Context, jobID pgtype.UUID) ([]V
 	return items, nil
 }
 
+const updateBriefStatus = `-- name: UpdateBriefStatus :one
+UPDATE briefs
+SET status = $2, updated_at = NOW()
+WHERE id = $1
+RETURNING id, workspace_id, scrape_job_id, product_url, model, status, created_at, updated_at
+`
+
+type UpdateBriefStatusParams struct {
+	ID     pgtype.UUID `db:"id" json:"id"`
+	Status string      `db:"status" json:"status"`
+}
+
+func (q *Queries) UpdateBriefStatus(ctx context.Context, arg UpdateBriefStatusParams) (Brief, error) {
+	row := q.db.QueryRow(ctx, updateBriefStatus, arg.ID, arg.Status)
+	var i Brief
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.ScrapeJobID,
+		&i.ProductUrl,
+		&i.Model,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateJobStatus = `-- name: UpdateJobStatus :one
 UPDATE jobs
 SET status = $2, updated_at = NOW()
@@ -227,6 +487,41 @@ func (q *Queries) UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams
 		&i.Model,
 		&i.BriefJson,
 		&i.ErrorMsg,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateVariantByAssetId = `-- name: UpdateVariantByAssetId :one
+UPDATE variants
+SET mux_asset_id    = $1,
+    mux_playback_id = $2,
+    status          = 'complete',
+    updated_at      = NOW()
+WHERE mux_asset_id = $1
+RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at
+`
+
+type UpdateVariantByAssetIdParams struct {
+	MuxAssetID    *string `db:"mux_asset_id" json:"mux_asset_id"`
+	MuxPlaybackID *string `db:"mux_playback_id" json:"mux_playback_id"`
+}
+
+func (q *Queries) UpdateVariantByAssetId(ctx context.Context, arg UpdateVariantByAssetIdParams) (Variant, error) {
+	row := q.db.QueryRow(ctx, updateVariantByAssetId, arg.MuxAssetID, arg.MuxPlaybackID)
+	var i Variant
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.WorkspaceID,
+		&i.Angle,
+		&i.Status,
+		&i.FalRequestID,
+		&i.MuxAssetID,
+		&i.MuxPlaybackID,
+		&i.R2Key,
+		&i.DurationSecs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
