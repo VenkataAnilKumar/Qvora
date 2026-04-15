@@ -1,0 +1,39 @@
+name: Deploy Web
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/apps/web/**"
+      - "src/packages/**"
+      - ".github/workflows/deploy-web.yml"
+
+concurrency:
+  group: deploy-web
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Vercel
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN_SECRET_NAME: VERCEL_TOKEN
+      VERCEL_ORG_ID_SECRET_NAME: VERCEL_ORG_ID
+      VERCEL_PROJECT_ID_SECRET_NAME: VERCEL_WEB_PROJECT_ID
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy to Vercel
+        run: npx vercel --prod --token=$VERCEL_TOKEN
+        env:
+          VERCEL_TOKEN: ${{ secrets[env.VERCEL_TOKEN_SECRET_NAME] }}
+          VERCEL_ORG_ID: ${{ secrets[env.VERCEL_ORG_ID_SECRET_NAME] }}
+          VERCEL_PROJECT_ID: ${{ secrets[env.VERCEL_PROJECT_ID_SECRET_NAME] }}

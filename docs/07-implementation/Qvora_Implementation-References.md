@@ -78,7 +78,7 @@ pnpm dlx shadcn@latest add card
 pnpm dlx shadcn@latest add button
 
 # Add to specific workspace in monorepo
-pnpm dlx shadcn@latest add card -c apps/web
+pnpm dlx shadcn@latest add card -c src/apps/web
 ```
 
 **Qvora notes:**
@@ -790,16 +790,17 @@ doppler run -- docker-compose up
 
 **Qvora monorepo structure:**
 ```
-apps/
-  web/          # Next.js 15 App Router (frontend + BFF)
-packages/
-  ui/           # shadcn/ui components
-  types/        # Shared TypeScript types
-  config/       # ESLint, TS, Tailwind configs
-services/
-  api/          # Go Echo API
-  worker/       # Go asynq worker
-  postprocess/  # Rust Axum video processor
+src/
+  apps/
+    web/        # Next.js 15 App Router (frontend + BFF)
+  packages/
+    ui/         # shadcn/ui components
+    types/      # Shared TypeScript types
+    config/     # ESLint, TS, Tailwind configs
+  services/
+    api/        # Go Echo API
+    worker/     # Go asynq worker
+    postprocess/# Rust Axum video processor
 ```
 
 ---

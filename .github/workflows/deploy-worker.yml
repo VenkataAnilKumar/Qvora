@@ -1,0 +1,30 @@
+name: Deploy Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/services/worker/**"
+      - ".github/workflows/deploy-worker.yml"
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_TOKEN_SECRET_NAME: RAILWAY_TOKEN
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy worker service
+        working-directory: src/services/worker
+        run: railway up --service qvora-worker --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets[env.RAILWAY_TOKEN_SECRET_NAME] }}

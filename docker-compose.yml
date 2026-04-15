@@ -1,0 +1,84 @@
+version: "3.9"
+
+services:
+  # ─── PostgreSQL (mirrors Supabase schema) ─────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: qvora
+      POSTGRES_USER: qvora
+      POSTGRES_PASSWORD: qvora_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./supabase/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qvora"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis (local dev — stands in for Railway Redis TCP) ──────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ─── Go API ───────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./src/services/api
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://qvora:qvora_dev@postgres:5432/qvora?sslmode=disable
+      # Use local Redis for both cache + asynq in dev
+      RAILWAY_REDIS_URL: redis://redis:6379
+      UPSTASH_REDIS_REST_URL: redis://redis:6379
+      UPSTASH_REDIS_REST_TOKEN: dev_token
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: on-failure
+
+  # ─── Go Worker ────────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: ./src/services/worker
+      dockerfile: Dockerfile
+    environment:
+      # TCP connection required — asynq uses BLPOP
+      RAILWAY_REDIS_URL: redis://redis:6379
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: on-failure
+
+  # ─── Rust Postprocessor ───────────────────────────────────────────────────
+  postprocess:
+    build:
+      context: ./src/services/postprocess
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+    env_file:
+      - .env
+    restart: on-failure
+
+volumes:
+  postgres_data:

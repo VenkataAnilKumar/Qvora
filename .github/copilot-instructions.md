@@ -53,7 +53,7 @@ Read this file fully before answering any question or making any change.
 
 ### BFF
 - **tRPC** (TypeScript ≥5.7.2): `initTRPC.create()`, `httpBatchLink`
-- **SSE generation stream:** Standalone Route Handler at `apps/web/app/api/generation/[jobId]/stream/route.ts` — **NOT a tRPC subscription**
+- **SSE generation stream:** Standalone Route Handler at `src/apps/web/app/api/generation/[jobId]/stream/route.ts` — **NOT a tRPC subscription**
 
 ### Backend — Railway
 - **API:** Go Echo v4
@@ -90,7 +90,7 @@ Read this file fully before answering any question or making any change.
 - Tier limits enforced in Go API middleware (server-side), not client-side
 
 ### Infrastructure
-- **Vercel** — apps/web (Next.js + tRPC)
+- **Vercel** — src/apps/web (Next.js + tRPC)
 - **Railway** — Go API, Go workers, Railway Redis, Rust postprocessor
 - **Modal** — Playwright scraping (serverless, pay-per-second)
 - **Doppler** — secrets management (dev/stg/prd environments)
@@ -114,16 +114,18 @@ Read this file fully before answering any question or making any change.
 ## Monorepo Structure
 
 ```
-apps/
-  web/            → Next.js 15 App Router + tRPC BFF
-packages/
-  ui/             → shadcn/ui components (copied, not imported)
-  types/          → Shared TypeScript types
-  config/         → ESLint / TS / Tailwind shared configs
-services/
-  api/            → Go Echo v4 REST API
-  worker/         → Go asynq job workers
-  postprocess/    → Rust Axum + ffmpeg-sys
+src/
+  apps/
+    web/          → Next.js 15 App Router (frontend + tRPC BFF)
+  packages/
+    ui/           → shadcn/ui components
+    types/        → Shared TypeScript types
+    config/       → Shared ESLint / TS / Tailwind configs
+  services/
+    api/          → Go Echo v4 API
+    worker/       → Go asynq workers
+    postprocess/  → Rust Axum + ffmpeg-sys video processor
+    postprocess/  → Rust Axum + ffmpeg-sys
 ```
 
 ---
@@ -147,8 +149,8 @@ services/
 
 | File | Contents |
 |---|---|
-| `CONTEXT.md` | Quick-reference product + stack summary |
-| `MEMORY.md` | Decision log, all doc fixes applied, research numbers |
+| `.github/CONTEXT.md` | Quick-reference product + stack summary |
+| `.github/MEMORY.md` | Decision log, all doc fixes applied, research numbers |
 | `docs/02-product/Qvora_Product-Definition.md` | Full product definition, personas, KPIs |
 | `docs/04-specs/Qvora_Feature-Spec.md` | Functional requirements + acceptance criteria |
 | `docs/04-specs/Qvora_User-Stories.md` | All epics + user stories |

@@ -66,7 +66,7 @@ The SSE streaming layer is built alongside video generation in Sprint 2 — it's
 
 | ID | Story | Points | Owner |
 |---|---|---|---|
-| S0-01 | Monorepo setup: `/apps/web`, `/apps/api`, `/services/agent` with shared `package.json` | 3 | Backend |
+| S0-01 | Monorepo setup: `/src/apps/web`, `/src/services/api`, `/src/services/worker` with shared root `package.json` | 3 | Backend |
 | S0-02 | Clerk org-mode auth: JWT with `org_id`, `org_role`, `plan` claims | 3 | Backend |
 | S0-03 | Go Echo server scaffolding: health check, CORS, Clerk JWT middleware | 2 | Backend |
 | S0-04 | Supabase project: apply full schema DDL, RLS policies, seed data | 3 | Backend |

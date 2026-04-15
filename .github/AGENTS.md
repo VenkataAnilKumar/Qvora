@@ -20,8 +20,8 @@ Read these files before working on any module:
 
 | File | When to Read |
 |---|---|
-| `CONTEXT.md` | Always — product, stack, rules quick-reference |
-| `MEMORY.md` | Always — locked decisions, doc fix history, research data |
+| `.github/CONTEXT.md` | Always — product, stack, rules quick-reference |
+| `.github/MEMORY.md` | Always — locked decisions, doc fix history, research data |
 | `docs/06-technical/Qvora_Architecture-Stack.md` | Before any backend, infra, or API work |
 | `docs/04-specs/Qvora_Feature-Spec.md` | Before implementing any feature module |
 | `docs/04-specs/Qvora_User-Stories.md` | Before implementing any user-facing flow |
@@ -51,14 +51,14 @@ Read these files before working on any module:
 
 ### SSE Generation Stream
 
-- **Path:** `apps/web/app/api/generation/[jobId]/stream/route.ts`
+- **Path:** `src/apps/web/app/api/generation/[jobId]/stream/route.ts`
 - **Transport:** `text/event-stream` via `ReadableStream`
 - **Rule:** This is a standalone Next.js Route Handler — NOT a tRPC subscription.
 
 ### Tailwind v4
 
 - **No `tailwind.config.ts`** — the file must not exist.
-- All tokens defined in `@theme {}` block inside `apps/web/app/globals.css`.
+- All tokens defined in `@theme {}` block inside `src/apps/web/app/globals.css`.
 
 ### HeyGen Version
 
@@ -110,16 +110,17 @@ if maxVariants != -1 && count >= maxVariants {
 ## Monorepo Structure
 
 ```
-apps/
-  web/            → Next.js 15 App Router (frontend + tRPC BFF)
-packages/
-  ui/             → shadcn/ui components
-  types/          → Shared TypeScript types
-  config/         → Shared ESLint / TS / Tailwind configs
-services/
-  api/            → Go Echo v4 API
-  worker/         → Go asynq workers
-  postprocess/    → Rust Axum + ffmpeg-sys video processor
+src/
+  apps/
+    web/          → Next.js 15 App Router (frontend + tRPC BFF)
+  packages/
+    ui/           → shadcn/ui components
+    types/        → Shared TypeScript types
+    config/       → Shared ESLint / TS / Tailwind configs
+  services/
+    api/          → Go Echo v4 API
+    worker/       → Go asynq workers
+    postprocess/  → Rust Axum + ffmpeg-sys video processor
 ```
 
 ---
@@ -169,5 +170,5 @@ go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
 - Do not build any feature tagged "Phase 2" or "V2" in the current sprint
 - Do not reference HeyGen API v4 — use v3 (`developers.heygen.com`)
 - Do not use `fal.subscribe()` for video generation (blocking — breaks under load)
-- Do not add Rust code outside `services/postprocess/`
+- Do not add Rust code outside `src/services/postprocess/`
 - Do not enforce tier limits in client-side code

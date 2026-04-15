@@ -1,0 +1,27 @@
+# Qvora — Code Owners
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Catch-all
+* @VenkataAnilKumar
+
+# Frontend
+src/apps/web/               @VenkataAnilKumar
+src/packages/ui/            @VenkataAnilKumar
+src/packages/types/         @VenkataAnilKumar
+src/packages/config/        @VenkataAnilKumar
+
+# Backend — Go API
+src/services/api/           @VenkataAnilKumar
+
+# Backend — Go Worker
+src/services/worker/        @VenkataAnilKumar
+
+# Backend — Rust Postprocessor
+src/services/postprocess/   @VenkataAnilKumar
+
+# Infrastructure / CI
+.github/                    @VenkataAnilKumar
+docker-compose.yml          @VenkataAnilKumar
+
+# Docs
+docs/                       @VenkataAnilKumar

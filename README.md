@@ -71,16 +71,23 @@ packages/
   ui/             -> shared UI components
   types/          -> shared TypeScript types
   config/         -> shared lint/TS configs
-services/
-  api/            -> Go API
-  worker/         -> Go asynq workers
-  postprocess/    -> Rust video service
+src/
+  apps/
+    web/          -> Next.js app
+  packages/
+    config/       -> Shared tooling config
+    types/        -> Shared TypeScript types
+    ui/           -> Shared UI components
+  services/
+    api/          -> Go API
+    worker/       -> Go asynq workers
+    postprocess/  -> Rust video service
 ```
 
 ## Key Documents
-- [Project context](CONTEXT.md)
-- [Decision memory](MEMORY.md)
-- [Agent instructions](AGENTS.md)
+- [Project context](.github/CONTEXT.md)
+- [Decision memory](.github/MEMORY.md)
+- [Agent instructions](.github/AGENTS.md)
 - [Product definition](docs/02-product/Qvora_Product-Definition.md)
 - [Feature specification](docs/04-specs/Qvora_Feature-Spec.md)
 - [User stories](docs/04-specs/Qvora_User-Stories.md)
@@ -92,7 +99,7 @@ services/
 ## Getting Started
 Implementation scaffolding is being built. Until code bootstrap lands, use docs-first workflow:
 
-1. Read [Project context](CONTEXT.md)
+1. Read [Project context](.github/CONTEXT.md)
 2. Read [Architecture stack](docs/05-technical/Qvora_Architecture-Stack.md)
 3. Follow [Implementation plan](docs/06-implementation/Qvora_Implementation-Plan.md)
 

@@ -1,0 +1,30 @@
+name: Deploy Postprocess
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/services/postprocess/**"
+      - ".github/workflows/deploy-postprocess.yml"
+
+concurrency:
+  group: deploy-postprocess
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_TOKEN_SECRET_NAME: RAILWAY_TOKEN
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy postprocess service
+        working-directory: src/services/postprocess
+        run: railway up --service qvora-postprocess --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets[env.RAILWAY_TOKEN_SECRET_NAME] }}

@@ -7,9 +7,9 @@ All notable changes to this project are documented in this file.
 Initial repository foundation and documentation baseline for Qvora.
 
 ### Added
-- Core project context document for fast onboarding: [CONTEXT.md](CONTEXT.md)
-- Decision log and long-memory reference: [MEMORY.md](MEMORY.md)
-- Agent runtime guidance for multi-agent tooling: [AGENTS.md](AGENTS.md)
+- Core project context document for fast onboarding: [CONTEXT.md](.github/CONTEXT.md)
+- Decision log and long-memory reference: [MEMORY.md](.github/MEMORY.md)
+- Agent runtime guidance for multi-agent tooling: [AGENTS.md](.github/AGENTS.md)
 - GitHub Copilot workspace instructions: [.github/copilot-instructions.md](.github/copilot-instructions.md)
 - Product-facing repository overview and setup guide: [README.md](README.md)
 

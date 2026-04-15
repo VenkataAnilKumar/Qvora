@@ -1,0 +1,25 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome-format:
+      glob: "*.{ts,tsx,js,jsx,json}"
+      run: npx biome format --write {staged_files}
+      stage_fixed: true
+    biome-lint:
+      glob: "*.{ts,tsx,js,jsx}"
+      run: npx biome lint {staged_files}
+    typecheck-web:
+      glob: "src/apps/web/**/*.{ts,tsx}"
+      run: npm run typecheck --workspace=src/apps/web
+
+commit-msg:
+  commands:
+    conventional-commit:
+      run: |
+        msg=$(cat {1})
+        pattern='^(feat|fix|chore|docs|style|refactor|test|perf|ci|build|revert)(\(.+\))?: .{1,100}$'
+        if ! echo "$msg" | grep -qE "$pattern"; then
+          echo "ERROR: Commit message must follow Conventional Commits format"
+          echo "  e.g. feat(web): add video generation form"
+          exit 1
+        fi

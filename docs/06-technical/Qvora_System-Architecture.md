@@ -256,7 +256,7 @@ Scheduler     Core API     asynq     Go Worker     Meta API     DB (signal table
 The brief pipeline runs as a tRPC mutation in the Next.js BFF. No separate Python service. Structured output is handled via `generateObject()` with Zod schemas; retries are a simple async loop.
 
 ```typescript
-// apps/web/src/server/routers/briefs.ts
+// src/apps/web/src/server/routers/briefs.ts
 import { generateObject } from 'ai';
 import { anthropic } from '@ai-sdk/anthropic';
 import { openai } from '@ai-sdk/openai';
@@ -422,7 +422,7 @@ CREATE POLICY "org_isolation" ON briefs
 SSE runs as a **standalone Next.js Route Handler** (not Go, not tRPC). It polls job status from Redis and pushes events to the browser. This keeps it within the Vercel edge/Node.js environment where the brief pipeline already runs, and avoids an extra HTTP hop to Go for status reads.
 
 ```typescript
-// apps/web/src/app/api/generation/[jobId]/stream/route.ts
+// src/apps/web/src/app/api/generation/[jobId]/stream/route.ts
 import { redis } from '@/lib/upstash'; // Upstash HTTP Redis
 
 export async function GET(

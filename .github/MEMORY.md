@@ -38,7 +38,7 @@
 
 **Decision:** Generation progress streaming uses a standalone Next.js Route Handler, not a tRPC subscription.
 
-- **Path:** `apps/web/app/api/generation/[jobId]/stream/route.ts`
+- **Path:** `src/apps/web/app/api/generation/[jobId]/stream/route.ts`
 - **Transport:** `text/event-stream` via `ReadableStream`
 - **Why:** tRPC subscriptions add unnecessary adapter complexity. The SSE endpoint is simple, stateless, and framework-agnostic.
 
@@ -58,7 +58,7 @@ export async function GET(req, { params }) {
 **Decision:** No `tailwind.config.ts`. All tokens live in `globals.css` using `@theme {}`.
 
 ```css
-/* apps/web/app/globals.css */
+/* src/apps/web/app/globals.css */
 @import "tailwindcss";
 
 @theme {

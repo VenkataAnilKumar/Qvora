@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+src/apps/web/.next/
+src/apps/web/out/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Go build
+src/services/api/bin/
+src/services/worker/bin/
+
+# Rust build
+src/services/postprocess/target/
+
+# Environment files — NEVER commit real secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Secrets and keys
+*.pem
+*.key
+*.p12
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+.pnpm-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Turbo
+.turbo/
+
+# Vercel
+.vercel/
+
+# Doppler
+.doppler/

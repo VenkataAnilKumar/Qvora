@@ -1,0 +1,53 @@
+version: 2
+
+updates:
+  # ─── npm (apps/ + packages/) ───────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    groups:
+      nextjs:
+        patterns: ["next", "react", "react-dom"]
+      clerk:
+        patterns: ["@clerk/*"]
+      trpc:
+        patterns: ["@trpc/*"]
+      tanstack:
+        patterns: ["@tanstack/*"]
+      radix:
+        patterns: ["@radix-ui/*"]
+
+  # ─── Go — API ─────────────────────────────────────────────────────────────
+  - package-ecosystem: gomod
+    directory: "/src/services/api"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  # ─── Go — Worker ──────────────────────────────────────────────────────────
+  - package-ecosystem: gomod
+    directory: "/src/services/worker"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  # ─── Cargo — Postprocessor ────────────────────────────────────────────────
+  - package-ecosystem: cargo
+    directory: "/src/services/postprocess"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  # ─── GitHub Actions ───────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5

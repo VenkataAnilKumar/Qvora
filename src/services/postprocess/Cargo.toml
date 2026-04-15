@@ -1,0 +1,43 @@
+[package]
+name = "postprocess"
+version = "0.1.1"
+edition = "2021"
+description = "Qvora video postprocessor — watermark, captions, transcode, 9:16 reframe"
+
+[[bin]]
+name = "postprocess"
+path = "src/main.rs"
+
+[dependencies]
+axum = { version = "0.8", features = ["json", "multipart"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "request-id"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v4"] }
+anyhow = "1"
+thiserror = "2"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+aws-sdk-s3 = "1"          # For Cloudflare R2 (S3-compatible)
+aws-config = "1"
+bytes = "1"
+tempfile = "3"
+
+# ffmpeg-sys — CPU-bound video processing
+# Linked against system ffmpeg in Docker
+[dependencies.ffmpeg-sys-next]
+version = "7"
+optional = true
+
+[features]
+default = []
+ffmpeg = ["ffmpeg-sys-next"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

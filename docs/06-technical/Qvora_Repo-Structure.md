@@ -20,13 +20,13 @@
 
 **Rationale:**
 
-1. **Shared TypeScript types are a hard requirement.** `packages/types` is consumed by `apps/web` and tRPC routers. In a polyrepo this requires versioned npm publishes on every change. In a monorepo it is a zero-config workspace import.
+1. **Shared TypeScript types are a hard requirement.** `src/packages/types` is consumed by `src/apps/web` and tRPC routers. In a polyrepo this requires versioned npm publishes on every change. In a monorepo it is a zero-config workspace import.
 
 2. **Cross-service changes ship atomically.** A single generation feature touches `web → api → worker → postprocess`. One PR. One review. One deploy sequence. Polyrepo means 4 PRs with coordination overhead that kills pre-launch velocity.
 
 3. **Turborepo path filtering gives polyrepo-level deploy isolation anyway.** Each service deploys independently via GitHub Actions path filters — no redeployment triggered unless that service's code changed.
 
-4. **Go + Rust coexist cleanly.** `services/` is completely independent of npm workspaces. Go uses `go.mod`; Rust uses `Cargo.toml`. Turborepo only orchestrates the TypeScript layer. No toolchain conflicts.
+4. **Go + Rust coexist cleanly.** `src/services/` is completely independent of npm workspaces. Go uses `go.mod`; Rust uses `Cargo.toml`. Turborepo only orchestrates the TypeScript layer. No toolchain conflicts.
 
 5. **Stage of company.** Polyrepo overhead (cross-repo PRs, dep bumping, access management) only pays off with dedicated per-service teams. At pre-launch this is pure friction with zero benefit.
 
@@ -49,10 +49,10 @@ qvora/                                   ← Turborepo root
 │   ├── copilot-instructions.md          ← Auto-loaded by GitHub Copilot
 │   ├── workflows/
 │   │   ├── ci.yml                       ← Lint + typecheck + test (all packages)
-│   │   ├── deploy-web.yml               ← Trigger: apps/web/**, packages/**
-│   │   ├── deploy-api.yml               ← Trigger: services/api/**
-│   │   ├── deploy-worker.yml            ← Trigger: services/worker/**
-│   │   ├── deploy-postprocess.yml       ← Trigger: services/postprocess/**
+│   │   ├── deploy-web.yml               ← Trigger: src/apps/web/**, src/packages/**
+│   │   ├── deploy-api.yml               ← Trigger: src/services/api/**
+│   │   ├── deploy-worker.yml            ← Trigger: src/services/worker/**
+│   │   ├── deploy-postprocess.yml       ← Trigger: src/services/postprocess/**
 │   │   ├── deploy-db.yml                ← Trigger: supabase/migrations/** → supabase db push
 │   │   └── security.yml                 ← CodeQL scan
 │   ├── ISSUE_TEMPLATE/
@@ -63,9 +63,10 @@ qvora/                                   ← Turborepo root
 │   ├── SECURITY.md                      ← Vulnerability reporting policy
 │   └── pull_request_template.md
 │
-├── apps/
-│   └── web/                             ← Next.js 15 App Router (→ Vercel)
-│       ├── app/
+├── src/
+│   ├── apps/
+│   │   └── web/                         ← Next.js 15 App Router (→ Vercel)
+│   │       ├── app/
 │       │   ├── layout.tsx               ← Root layout + ClerkProvider
 │       │   ├── page.tsx                 ← Marketing / home
 │       │   ├── (auth)/                  ← Route group — no URL segment
@@ -115,26 +116,26 @@ qvora/                                   ← Turborepo root
 │       ├── package.json
 │       └── tsconfig.json
 │
-├── packages/
-│   ├── ui/                              ← shadcn/ui components (copied, not imported)
+│   ├── packages/
+│   │   ├── ui/                          ← shadcn/ui components (copied, not imported)
 │   │   ├── src/components/
 │   │   ├── package.json
 │   │   └── tsconfig.json
-│   ├── types/                           ← Shared TypeScript types
+│   │   ├── types/                       ← Shared TypeScript types
 │   │   ├── src/
 │   │   │   ├── api.ts                   ← API request/response types
 │   │   │   ├── generation.ts            ← Job, variant, angle, brief types
 │   │   │   └── index.ts
 │   │   ├── package.json
 │   │   └── tsconfig.json
-│   └── config/                          ← Shared tooling configs
+│   │   └── config/                      ← Shared tooling configs
 │       ├── biome/base.json              ← Shared Biome rules (extends from root biome.json)
 │       ├── typescript/base.json
 │       └── package.json
 │
-├── services/
-│   ├── go.work                          ← Go workspace (Go 1.18+) — links api + worker modules locally
-│   ├── api/                             ← Go Echo v4 (→ Railway)
+│   ├── services/
+│   │   ├── go.work                      ← Go workspace (Go 1.18+) — links api + worker modules locally
+│   │   ├── api/                         ← Go Echo v4 (→ Railway)
 │   │   ├── main.go                      ← Entry point
 │   │   ├── internal/
 │   │   │   ├── handler/                 ← HTTP handlers (Echo routes)
@@ -209,11 +210,11 @@ qvora/                                   ← Turborepo root
 ├── lefthook.yml                         ← Pre-commit hooks (replaces Husky)
 ├── docker-compose.yml                   ← Local dev: Postgres, Redis ×2, all services
 ├── turbo.json                           ← Pipeline: build → lint → test
-├── package.json                         ← workspaces: [apps/*, packages/*]
+├── package.json                         ← workspaces: [src/apps/*, src/packages/*]
 ├── tsconfig.json                        ← Root TS config (references)
-├── AGENTS.md                            ← Agentic AI tool context
-├── CONTEXT.md                           ← Quick-reference product + stack
-├── MEMORY.md                            ← Decision log
+│   ├── AGENTS.md                        ← Agentic AI tool context
+│   ├── CONTEXT.md                       ← Quick-reference product + stack
+│   ├── MEMORY.md                        ← Decision log
 └── README.md
 ```
 
@@ -226,10 +227,10 @@ qvora/                                   ← Turborepo root
 | Workflow | Trigger (path filter) | Action | Target |
 |---|---|---|---|
 | `ci.yml` | All PRs | Turbo lint + typecheck + test | — |
-| `deploy-web.yml` | Push to `main` → `apps/web/**` or `packages/**` | `turbo build --filter=web` | Vercel |
-| `deploy-api.yml` | Push to `main` → `services/api/**` | Docker build + push | Railway |
-| `deploy-worker.yml` | Push to `main` → `services/worker/**` | Docker build + push | Railway |
-| `deploy-postprocess.yml` | Push to `main` → `services/postprocess/**` | Docker build + push | Railway |
+| `deploy-web.yml` | Push to `main` → `src/apps/web/**` or `src/packages/**` | `turbo build --filter=web` | Vercel |
+| `deploy-api.yml` | Push to `main` → `src/services/api/**` | Docker build + push | Railway |
+| `deploy-worker.yml` | Push to `main` → `src/services/worker/**` | Docker build + push | Railway |
+| `deploy-postprocess.yml` | Push to `main` → `src/services/postprocess/**` | Docker build + push | Railway |
 | `deploy-db.yml` | Push to `main` → `supabase/migrations/**` | `supabase db push` → staging | Supabase |
 | `security.yml` | Weekly schedule + PRs | CodeQL scan | — |
 
@@ -241,10 +242,10 @@ PR opened
 ci.yml runs: turbo lint + typecheck + test (Turborepo cache-aware)
     ↓ (approved + merged to main)
 Path change detected by GitHub Actions:
-    apps/web/** or packages/**        →  deploy-web.yml     →  Vercel
-    services/api/**                   →  deploy-api.yml     →  Railway (Docker)
-    services/worker/**                →  deploy-worker.yml  →  Railway (Docker)
-    services/postprocess/**           →  deploy-postprocess →  Railway (Docker)
+    src/apps/web/** or src/packages/** → deploy-web.yml     →  Vercel
+    src/services/api/**                → deploy-api.yml     →  Railway (Docker)
+    src/services/worker/**             → deploy-worker.yml  →  Railway (Docker)
+    src/services/postprocess/**        → deploy-postprocess →  Railway (Docker)
     supabase/migrations/**            →  deploy-db.yml      →  Supabase (supabase db push)
 ```
 
@@ -291,7 +292,7 @@ Final stage:  alpine:latest        ← ffmpeg runtime + compiled binary (~150–
 | Git hooks | Lefthook | Husky | No npm dependency, native binary |
 | Package manager | pnpm | npm, yarn | Faster installs, strict hoisting |
 | Node version | `.nvmrc` (Node 22 LTS) | `.node-version` | Widest tool support |
-| Go multi-module | `services/go.work` | `replace` directives | Local module linking without version pinning |
+| Go multi-module | `src/services/go.work` | `replace` directives | Local module linking without version pinning |
 | DB migrations | Supabase CLI (`supabase/`) | raw psql | `supabase db push`, `supabase gen types` integration |
 | Prompt versioning | `ai/prompts/` + Langfuse | hardcoded strings | Version-controlled source → Langfuse synced at deploy |
 
@@ -301,12 +302,12 @@ Final stage:  alpine:latest        ← ffmpeg runtime + compiled binary (~150–
 
 | Service | Language | Why |
 |---|---|---|
-| `apps/web` | TypeScript (Next.js 15) | I/O-bound, React ecosystem |
-| `services/api` | Go (Echo v4) | I/O-bound, low-latency HTTP + external API calls |
-| `services/worker` | Go (asynq) | Goroutine-per-job concurrency model |
-| `services/postprocess` | Rust (Axum + ffmpeg-sys) | CPU-bound video processing |
+| `src/apps/web` | TypeScript (Next.js 15) | I/O-bound, React ecosystem |
+| `src/services/api` | Go (Echo v4) | I/O-bound, low-latency HTTP + external API calls |
+| `src/services/worker` | Go (asynq) | Goroutine-per-job concurrency model |
+| `src/services/postprocess` | Rust (Axum + ffmpeg-sys) | CPU-bound video processing |
 
-> **Rule:** Do not expand Rust beyond `services/postprocess/`. Do not add a fourth language.
+> **Rule:** Do not expand Rust beyond `src/services/postprocess/`. Do not add a fourth language.
 
 ---
 
@@ -324,9 +325,9 @@ Upstash HTTP proxy does not support `BLPOP`/`BRPOP`. Using Upstash for asynq sil
 ## Key Constraints Enforced by This Structure
 
 - **No `tailwind.config.ts`** — Tailwind v4 is CSS-only. All tokens live in `globals.css` `@theme {}`.
-- **SSE is not tRPC** — `apps/web/app/api/generation/[jobId]/stream/route.ts` is a standalone Route Handler.
-- **Tier limits are server-side** — Enforced in `services/api/internal/middleware/`, never in `apps/web`.
+- **SSE is not tRPC** — `src/apps/web/app/api/generation/[jobId]/stream/route.ts` is a standalone Route Handler.
+- **Tier limits are server-side** — Enforced in `src/services/api/internal/middleware/`, never in `src/apps/web`.
 - **DTC features are Phase 2** — Nothing in `(dashboard)/` is built for DTC Brand Managers in V1.
 - **HeyGen = v3 only** — Active platform: `developers.heygen.com`. Any reference to "v4" is incorrect. V2V lip-sync is v3-only.
 - **FAL.AI = async queue only** — Always `fal.queue.submit()`. Never `fal.subscribe()` (blocks; unusable for 30–120s operations).
-- **Migrations = `supabase/migrations/` only** — Do not add migration files to `services/api/db/`. That directory holds sqlc query definitions only.
+- **Migrations = `supabase/migrations/` only** — Do not add migration files to `src/services/api/db/`. That directory holds sqlc query definitions only.

@@ -108,16 +108,17 @@ Performance Signal
 ## Monorepo Structure
 
 ```
-apps/
-  web/          → Next.js 15 (frontend + tRPC BFF)
-packages/
-  ui/           → shadcn/ui component library
-  types/        → Shared TypeScript types
-  config/       → ESLint, TS, Tailwind shared configs
-services/
-  api/          → Go Echo v4 REST API
-  worker/       → Go asynq workers
-  postprocess/  → Rust Axum + ffmpeg-sys
+src/
+  apps/
+    web/        → Next.js 15 (frontend + tRPC BFF)
+  packages/
+    ui/         → shadcn/ui component library
+    types/      → Shared TypeScript types
+    config/     → ESLint, TS, Tailwind shared configs
+  services/
+    api/        → Go Echo v4 REST API
+    worker/     → Go asynq workers
+    postprocess/→ Rust Axum + ffmpeg-sys
 ```
 
 ---

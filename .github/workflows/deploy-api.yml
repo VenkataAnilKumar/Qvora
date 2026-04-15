@@ -1,0 +1,30 @@
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/services/api/**"
+      - ".github/workflows/deploy-api.yml"
+
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    env:
+      RAILWAY_TOKEN_SECRET_NAME: RAILWAY_TOKEN
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy API service
+        working-directory: src/services/api
+        run: railway up --service qvora-api --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets[env.RAILWAY_TOKEN_SECRET_NAME] }}

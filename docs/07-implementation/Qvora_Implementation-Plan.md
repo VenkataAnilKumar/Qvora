@@ -1,7 +1,7 @@
 # Qvora — Implementation Plan
 **Version:** 1.0 | **Date:** April 2026 | **Status:** Active
 
-> This document is the engineering execution plan for Qvora V1. It translates the Feature Spec, User Stories, and Architecture Stack into time-boxed phases with explicit deliverables, dependencies, and acceptance gates. Read `CONTEXT.md` and `docs/06-technical/Qvora_Architecture-Stack.md` before this document.
+> This document is the engineering execution plan for Qvora V1. It translates the Feature Spec, User Stories, and Architecture Stack into time-boxed phases with explicit deliverables, dependencies, and acceptance gates. Read `.github/CONTEXT.md` and `docs/06-technical/Qvora_Architecture-Stack.md` before this document.
 
 ---
 
@@ -31,7 +31,7 @@
 
 | Task | Owner Layer | Output |
 |---|---|---|
-| Initialize Turborepo with `apps/`, `packages/`, `services/` | Frontend | Repo root + `turbo.json` |
+| Initialize Turborepo with `src/apps/`, `src/packages/`, `src/services/` | Frontend | Repo root + `turbo.json` |
 | Configure `pnpm` workspaces | Frontend | `pnpm-workspace.yaml` |
 | Add `biome.json` (lint + format) | Frontend | Replaces ESLint + Prettier |
 | Add `lefthook.yml` (pre-commit hooks) | Frontend | Biome format on commit |
@@ -54,7 +54,7 @@
 
 | Task | Service | Notes |
 |---|---|---|
-| Create Vercel project (connect GitHub) | `apps/web` | Preview deployments on PR |
+| Create Vercel project (connect GitHub) | `src/apps/web` | Preview deployments on PR |
 | Create Railway project + 4 services | api, worker, postprocess, redis | TCP Railway Redis required for asynq |
 | Provision Supabase project | PostgreSQL | Enable RLS immediately |
 | Provision Upstash Redis (HTTP) | Cache + rate-limit | Separate from Railway Redis |
@@ -68,17 +68,17 @@
 | Task | Output |
 |---|---|
 | `docker-compose.yml` for local dev | Postgres, Redis ×2 (ports 6379 + 6380), mock services |
-| Go module init (`services/api`, `services/worker`) | `go.mod` for each |
-| Rust project init (`services/postprocess`) | `Cargo.toml`, basic Axum health route |
-| Next.js 15 app scaffold (`apps/web`) | App Router, Tailwind v4, `@theme {}` in `globals.css` |
-| `packages/ui` — shadcn/ui init | Base components copied |
-| `packages/types` — TypeScript types scaffold | Empty `src/index.ts` |
-| `packages/config` — Biome + TS base configs | `biome/base.json` + `typescript/base.json` shared via workspace refs |
+| Go module init (`src/services/api`, `src/services/worker`) | `go.mod` for each |
+| Rust project init (`src/services/postprocess`) | `Cargo.toml`, basic Axum health route |
+| Next.js 15 app scaffold (`src/apps/web`) | App Router, Tailwind v4, `@theme {}` in `globals.css` |
+| `src/packages/ui` — shadcn/ui init | Base components copied |
+| `src/packages/types` — TypeScript types scaffold | Empty `src/index.ts` |
+| `src/packages/config` — Biome + TS base configs | `biome/base.json` + `typescript/base.json` shared via workspace refs |
 
 ### Phase 0 Gate
 - [ ] `turbo dev` starts all services without errors
 - [ ] CI workflow passes on a blank PR
-- [ ] Vercel preview URL live for `apps/web`
+- [ ] Vercel preview URL live for `src/apps/web`
 - [ ] Railway services deploy (even if they return 200 on `/health` only)
 - [ ] All secrets in Doppler, not in repo
 
@@ -90,7 +90,7 @@
 
 ### 1.1 — Database Schema
 
-All tables created via migration files in `supabase/migrations/` (Supabase CLI — `supabase db push`). Do **not** add migration files to `services/api/db/` — that directory holds sqlc query definitions only.
+All tables created via migration files in `supabase/migrations/` (Supabase CLI — `supabase db push`). Do **not** add migration files to `src/services/api/db/` — that directory holds sqlc query definitions only.
 
 **Core tables to create:**
 
@@ -125,15 +125,15 @@ CREATE INDEX ON briefs (workspace_id);
 | Task | Output |
 |---|---|
 | Write `sqlc.yaml` with pgx/v5 driver | Config validated |
-| Write SQL queries for all tables | `services/api/db/queries/*.sql` |
-| Run `sqlc generate` | Type-safe Go structs + queriers in `services/api/internal/db/` |
+| Write SQL queries for all tables | `src/services/api/db/queries/*.sql` |
+| Run `sqlc generate` | Type-safe Go structs + queriers in `src/services/api/internal/db/` |
 | Add `make generate` target to Makefile | Developer shortcut |
 
 ### 1.3 — Go API Skeleton
 
 | Task | Output |
 |---|---|
-| Echo v4 server setup with graceful shutdown | `services/api/main.go` |
+| Echo v4 server setup with graceful shutdown | `src/services/api/main.go` |
 | Middleware stack: request ID, logger, CORS, recover | `internal/middleware/` |
 | Clerk JWT verification middleware | Validates `org_id` + `org_role` from JWT |
 | Tier limit middleware (Starter/Growth/Agency) | `internal/middleware/tier.go` — server-side enforcement |
@@ -145,8 +145,8 @@ CREATE INDEX ON briefs (workspace_id);
 | Task | Output |
 |---|---|
 | Install: `@trpc/server`, `@trpc/client`, `@trpc/react-query`, `@tanstack/react-query` | Package deps |
-| `initTRPC.create()` with Clerk context | `apps/web/trpc/server.ts` |
-| `appRouter` with stub routers: `briefs`, `assets`, `exports`, `projects`, `brands`, `jobs`, `org` | `apps/web/trpc/routers/` |
+| `initTRPC.create()` with Clerk context | `src/apps/web/trpc/server.ts` |
+| `appRouter` with stub routers: `briefs`, `assets`, `exports`, `projects`, `brands`, `jobs`, `org` | `src/apps/web/trpc/routers/` |
 | tRPC Route Handler: `app/api/trpc/[trpc]/route.ts` | HTTP adapter |
 | `ClerkProvider` + `TRPCProvider` + `QueryClientProvider` in root `layout.tsx` | Provider tree |
 | `clerkMiddleware()` in `middleware.ts` | Protect all `(dashboard)` routes |
@@ -174,7 +174,7 @@ CREATE INDEX ON briefs (workspace_id);
 | Extract fields: name, category, price, features, proof points, CTA, image URLs | Structured JSON output |
 | Add extraction confidence score (0–100 per field) | Surface to user if < 60 |
 | 24-hour cache in Upstash by URL hash | Avoid repeat scraping |
-| Return structured `ProductExtraction` JSON | Matches `packages/types/generation.ts` |
+| Return structured `ProductExtraction` JSON | Matches `src/packages/types/generation.ts` |
 
 **Extraction timeout strategy:**
 ```
@@ -189,15 +189,15 @@ Confidence < 40:      Prompt user to verify or switch to manual input
 
 | Task | Output |
 |---|---|
-| `POST /v1/briefs` Go handler → enqueue asynq `scrape_url` task | `services/worker/internal/tasks/scrape_url.go` |
+| `POST /v1/briefs` Go handler → enqueue asynq `scrape_url` task | `src/services/worker/internal/tasks/scrape_url.go` |
 | `scrape_url` asynq task → call Modal webhook, store `ProductExtraction` JSON, publish `scraped` status | Worker task complete; no LLM call here |
-| tRPC `briefs.create` mutation (Next.js BFF) → on scrape complete: call `generateObject()` ×2 → persist brief | `apps/web/trpc/routers/briefs.ts` |
+| tRPC `briefs.create` mutation (Next.js BFF) → on scrape complete: call `generateObject()` ×2 → persist brief | `src/apps/web/trpc/routers/briefs.ts` |
 | GPT-4o `generateObject()` → `ProductSchema` structured extraction | Vercel AI SDK v6 in Next.js BFF |
 | Claude Sonnet 4.6 `generateObject()` → `AnglesSchema` (3–5 angles + hooks) | Vercel AI SDK v6 in Next.js BFF |
 | Status updates via Upstash Redis → SSE stream consumer | Job status: `queued → scraping → scraped → generating → complete → failed` |
 
 ```typescript
-// apps/web/trpc/routers/briefs.ts — tRPC mutation (Next.js BFF)
+// src/apps/web/trpc/routers/briefs.ts — tRPC mutation (Next.js BFF)
 import { generateObject } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { anthropic } from '@ai-sdk/anthropic';
@@ -217,7 +217,7 @@ const { object: brief } = await generateObject({
 
 ### 2.3 — SSE Generation Stream
 
-**Path:** `apps/web/app/api/generation/[jobId]/stream/route.ts`
+**Path:** `src/apps/web/app/api/generation/[jobId]/stream/route.ts`
 
 ```typescript
 // Standalone Route Handler — NOT tRPC
@@ -282,9 +282,9 @@ export async function GET(req: Request, { params }: { params: { jobId: string } 
 | Install `@fal-ai/client` | Package dep |
 | `fal.queue.submit()` for T2V (Veo 3.1 default) | Never `fal.subscribe()` |
 | Model selection logic: Veo 3.1 (quality) / Kling 3.0 (speed) / Runway Gen-4.5 (style) / Sora 2 | Brief format determines model |
-| Store `request_id` in asynq task payload | `services/worker/internal/tasks/generate_video.go` |
+| Store `request_id` in asynq task payload | `src/services/worker/internal/tasks/generate_video.go` |
 | Poll `fal.queue.status(request_id)` from worker every 10s | Long-running asynq task |
-| On completion: download output, upload to R2 | `services/worker/internal/processor/fal.go` |
+| On completion: download output, upload to R2 | `src/services/worker/internal/processor/fal.go` |
 
 **I2V flow:** Product images from extraction → FAL.AI I2V → video clip with motion applied to product shots.
 
@@ -295,7 +295,7 @@ export async function GET(req: Request, { params }: { params: { jobId: string } 
 | Install `elevenlabs` SDK | Package dep |
 | `eleven_v3` for final quality renders | Quality model |
 | `eleven_flash_v2_5` for preview renders (~75ms) | Speed model for UI previews |
-| Script generation: hook + body + CTA from brief angle | `services/worker/internal/processor/voice.go` |
+| Script generation: hook + body + CTA from brief angle | `src/services/worker/internal/processor/voice.go` |
 | Audio output: MP3 → upload to R2 | Store R2 key on variant |
 | Voice selection: default library + workspace custom voice (Growth+) | Tier-gated feature |
 
@@ -305,7 +305,7 @@ export async function GET(req: Request, { params }: { params: { jobId: string } 
 |---|---|
 | HeyGen Avatar API **v3** (`developers.heygen.com`) | V2V endpoint only |
 | Submit: video clip + audio → lip-sync job | Async submission |
-| Poll job status every 15s | `services/worker/internal/processor/heygen.go` |
+| Poll job status every 15s | `src/services/worker/internal/processor/heygen.go` |
 | On completion: download lip-synced video → R2 | Store R2 key |
 | Avatar library: default public avatars | Extended avatar upload: Agency tier |
 
@@ -330,8 +330,8 @@ queued
 
 | Task | Output |
 |---|---|
-| Task type definitions | `services/worker/internal/tasks/*.go` |
-| Processor implementations | `services/worker/internal/processor/` |
+| Task type definitions | `src/services/worker/internal/tasks/*.go` |
+| Processor implementations | `src/services/worker/internal/processor/` |
 | Retry config: 3 attempts, exponential backoff | Per task type |
 | Dead letter queue for unrecoverable failures | asynq built-in |
 | Status publish to Redis pub/sub on every transition | Consumed by SSE stream |
@@ -451,7 +451,7 @@ queued
 | Create Stripe products + prices (Starter $99 / Growth $149 / Agency $399) | Stripe dashboard + IDs in Doppler |
 | `POST /v1/billing/checkout` → Stripe checkout session | Go handler |
 | `POST /v1/billing/portal` → Stripe customer portal | Go handler |
-| Webhook handler: `invoice.paid`, `customer.subscription.updated`, `customer.subscription.deleted` | `services/api/internal/handler/webhooks.go` |
+| Webhook handler: `invoice.paid`, `customer.subscription.updated`, `customer.subscription.deleted` | `src/services/api/internal/handler/webhooks.go` |
 | Webhook: update `workspaces.plan_tier` + `workspaces.stripe_status` on every event | DB write via sqlc |
 | Stripe Entitlements API for feature flags | Growth+ features gated |
 | Idempotency on all webhook handlers (Stripe-Signature header verification) | Security requirement |
@@ -479,7 +479,7 @@ trialing → active → past_due → canceled
 Already plumbed in Phase 1 middleware. Phase 6 activates and tests all limits:
 
 ```go
-// services/api/internal/middleware/tier.go
+// src/services/api/internal/middleware/tier.go
 maxVariants := map[string]int{
   "starter": 3,
   "growth":  10,
@@ -520,7 +520,7 @@ if maxVariants != -1 && count >= maxVariants {
 |---|---|---|
 | **Sentry** | `@sentry/nextjs` + Go SDK + Rust SDK | Errors + stack traces across all 4 services |
 | **Better Stack** | Log drain from Railway | Structured logs with severity + trace IDs |
-| **PostHog** | `posthog-js` in `apps/web` | User activation funnel, feature adoption, trial conversion |
+| **PostHog** | `posthog-js` in `src/apps/web` | User activation funnel, feature adoption, trial conversion |
 | **Langfuse** | Tracing in worker GPT-4o calls | LLM cost per workspace, prompt versions, latency |
 
 **Key PostHog events to instrument:**

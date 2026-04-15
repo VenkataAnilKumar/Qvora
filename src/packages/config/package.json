@@ -1,0 +1,11 @@
+{
+  "name": "@qvora/config",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Shared ESLint, TypeScript, and Tailwind configs for Qvora monorepo",
+  "exports": {
+    "./typescript": "./typescript/index.json",
+    "./typescript/nextjs": "./typescript/nextjs.json"
+  },
+  "files": ["typescript"]
+}
