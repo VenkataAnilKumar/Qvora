@@ -29,7 +29,7 @@ tempfile = "3"
 # ffmpeg-sys — CPU-bound video processing
 # Linked against system ffmpeg in Docker
 [dependencies.ffmpeg-sys-next]
-version = "7"
+version = "8"
 optional = true
 
 [features]
