@@ -8,6 +8,7 @@ mod handler;
 mod model;
 mod processor;
 mod error;
+mod mux;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

@@ -22,12 +22,18 @@ anyhow = "1"
 thiserror = "2"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 aws-sdk-s3 = "1"          # For Cloudflare R2 (S3-compatible)
-aws-config = "1"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
 bytes = "1"
 tempfile = "3"
+chrono = { version = "0.4", features = ["serde"] }
+tracing-log = "0.2"
+base64 = "0.22"
+hmac = "0.13"
+sha2 = "0.11"
+hex = "0.4"
 
 # ffmpeg-sys — CPU-bound video processing
-# Linked against system ffmpeg in Docker
+# Linked against system ffmpeg in Docker; optional for local Windows development
 [dependencies.ffmpeg-sys-next]
 version = "7"
 optional = true

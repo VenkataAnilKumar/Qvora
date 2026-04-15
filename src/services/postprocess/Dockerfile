@@ -17,23 +17,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Cache dependencies
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release --features ffmpeg
+RUN cargo build --release
 RUN rm src/main.rs
 
 COPY src ./src
 RUN touch src/main.rs
-RUN cargo build --release --features ffmpeg
+RUN cargo build --release
 
 # ---- Final image ----
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libavcodec-dev \
-    libavformat-dev \
-    libavfilter-dev \
-    libavutil-dev \
-    libswscale-dev \
-    libswresample-dev \
+    libavcodec60 \
+    libavformat60 \
+    libavfilter9 \
+    libavutil58 \
+    libswscale7 \
+    libswresample4 \
+    libx264-164 \
+    libfdk-aac2 \
+    ffmpeg \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
