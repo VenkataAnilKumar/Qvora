@@ -15,8 +15,6 @@ jobs:
   deploy:
     name: Deploy to Railway
     runs-on: ubuntu-latest
-    env:
-      RAILWAY_TOKEN_SECRET_NAME: RAILWAY_TOKEN
     steps:
       - uses: actions/checkout@v4
 
@@ -27,4 +25,4 @@ jobs:
         working-directory: src/services/api
         run: railway up --service qvora-api --detach
         env:
-          RAILWAY_TOKEN: ${{ secrets[env.RAILWAY_TOKEN_SECRET_NAME] }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

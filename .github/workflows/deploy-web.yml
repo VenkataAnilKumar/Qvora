@@ -16,10 +16,6 @@ jobs:
   deploy:
     name: Deploy to Vercel
     runs-on: ubuntu-latest
-    env:
-      VERCEL_TOKEN_SECRET_NAME: VERCEL_TOKEN
-      VERCEL_ORG_ID_SECRET_NAME: VERCEL_ORG_ID
-      VERCEL_PROJECT_ID_SECRET_NAME: VERCEL_WEB_PROJECT_ID
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +30,6 @@ jobs:
       - name: Deploy to Vercel
         run: npx vercel --prod --token=$VERCEL_TOKEN
         env:
-          VERCEL_TOKEN: ${{ secrets[env.VERCEL_TOKEN_SECRET_NAME] }}
-          VERCEL_ORG_ID: ${{ secrets[env.VERCEL_ORG_ID_SECRET_NAME] }}
-          VERCEL_PROJECT_ID: ${{ secrets[env.VERCEL_PROJECT_ID_SECRET_NAME] }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_WEB_PROJECT_ID }}

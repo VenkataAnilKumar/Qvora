@@ -1,13 +1,26 @@
 param(
   [switch]$RequireFullE2E,
-  [string]$VariantId = "",
-  [string]$OrgId = "org_phase",
-  [string]$UserId = "phase-validator",
-  [int]$ApiPort = 18081
+  [string]$VariantId,
+  [string]$OrgId,
+  [string]$UserId,
+  [int]$ApiPort
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+if (-not $PSBoundParameters.ContainsKey("VariantId")) {
+  $VariantId = ""
+}
+if (-not $PSBoundParameters.ContainsKey("OrgId")) {
+  $OrgId = "org_phase"
+}
+if (-not $PSBoundParameters.ContainsKey("UserId")) {
+  $UserId = "phase-validator"
+}
+if (-not $PSBoundParameters.ContainsKey("ApiPort")) {
+  $ApiPort = 18081
+}
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
@@ -84,16 +97,25 @@ Write-Section "Static Validation"
 Invoke-Step "API Go Test" {
   Set-Location (Join-Path $repoRoot "src/services/api")
   & $goExe test ./... | Out-Host
+  if ($LASTEXITCODE -ne 0) {
+    throw "API Go Test failed with exit code $LASTEXITCODE"
+  }
 }
 
 Invoke-Step "Postprocess Cargo Check" {
   Set-Location (Join-Path $repoRoot "src/services/postprocess")
   & $cargoExe check | Out-Host
+  if ($LASTEXITCODE -ne 0) {
+    throw "Postprocess Cargo Check failed with exit code $LASTEXITCODE"
+  }
 }
 
 Invoke-Step "Web Typecheck" {
   Set-Location (Join-Path $repoRoot "src/apps/web")
   npm run typecheck | Out-Host
+  if ($LASTEXITCODE -ne 0) {
+    throw "Web Typecheck failed with exit code $LASTEXITCODE"
+  }
 }
 
 Write-Section "Runtime API Smoke"
