@@ -89,6 +89,7 @@ func main() {
 	// Webhooks (no auth middleware — verified by signature)
 	webhooks := e.Group("/webhooks")
 	webhooks.POST("/mux", handler.MuxWebhook)
+	webhooks.POST("/fal", handler.FalWebhook)
 
 	// -------------------------------------------------------------------------
 	// Start with graceful shutdown

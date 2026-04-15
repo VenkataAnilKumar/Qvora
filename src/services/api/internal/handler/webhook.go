@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
+	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/labstack/echo/v4"
 	"github.com/qvora/api/internal/db"
@@ -131,6 +134,119 @@ func verifyMuxSignature(body, signature string) bool {
 	expectedSig := "mux_v2 " + hex.EncodeToString(h.Sum(nil))
 
 	return hmac.Equal([]byte(signature), []byte(expectedSig))
+}
+
+// FalWebhook handles FAL completion webhooks and enqueues postprocess tasks.
+// POST /webhooks/fal
+// Expected payload fields:
+// - status: "completed"
+// - metadata.variant_id / metadata.job_id / metadata.workspace_id
+// - input_r2_key, output_r2_key
+func FalWebhook(c echo.Context) error {
+	var payload map[string]any
+	if err := c.Bind(&payload); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_payload"})
+	}
+
+	status := strings.ToLower(strings.TrimSpace(findString(payload, "status")))
+	if status != "completed" && status != "complete" {
+		return c.JSON(http.StatusOK, map[string]bool{"received": true})
+	}
+
+	metadata := findMap(payload, "metadata")
+	jobID := strings.TrimSpace(findString(metadata, "job_id"))
+	variantID := strings.TrimSpace(findString(metadata, "variant_id"))
+	workspaceID := strings.TrimSpace(findString(metadata, "workspace_id"))
+	inputR2Key := strings.TrimSpace(findString(payload, "input_r2_key"))
+	outputR2Key := strings.TrimSpace(findString(payload, "output_r2_key"))
+
+	if inputR2Key == "" {
+		inputR2Key = strings.TrimSpace(findString(metadata, "input_r2_key"))
+	}
+	if outputR2Key == "" {
+		outputR2Key = strings.TrimSpace(findString(metadata, "output_r2_key"))
+	}
+
+	if jobID == "" || variantID == "" || workspaceID == "" || inputR2Key == "" || outputR2Key == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing_required_fields"})
+	}
+
+	redisURL := strings.TrimSpace(os.Getenv("RAILWAY_REDIS_URL"))
+	if redisURL == "" {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "redis_not_configured"})
+	}
+
+	redisOpt, err := asynq.ParseRedisURI(redisURL)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "redis_uri_invalid"})
+	}
+
+	client := asynq.NewClient(redisOpt)
+	defer client.Close()
+
+	postprocessPayload := map[string]any{
+		"job_id":        jobID,
+		"variant_id":    variantID,
+		"workspace_id":  workspaceID,
+		"input_r2_key":  inputR2Key,
+		"output_r2_key": outputR2Key,
+		"watermark":     true,
+		"add_captions":  false,
+	}
+
+	data, err := json.Marshal(postprocessPayload)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "marshal_failed"})
+	}
+
+	task := asynq.NewTask("job:postprocess", data, asynq.Queue("critical"))
+	if _, err := client.Enqueue(task); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "enqueue_failed"})
+	}
+
+	q, err := queries(c.Request().Context())
+	if err == nil {
+		if parsedWorkspaceID, wsErr := parseUUID(workspaceID); wsErr == nil {
+			if parsedJobID, parseErr := parseUUID(jobID); parseErr == nil {
+				if jobRow, getErr := q.GetJobByID(c.Request().Context(), db.GetJobByIDParams{ID: parsedJobID, WorkspaceID: parsedWorkspaceID}); getErr == nil {
+					_, _ = q.UpdateJobStatus(c.Request().Context(), db.UpdateJobStatusParams{ID: jobRow.ID, Status: "postprocessing"})
+				}
+			}
+		}
+	}
+
+	zap.L().Info("fal completion webhook received",
+		zap.String("job_id", jobID),
+		zap.String("variant_id", variantID),
+		zap.String("workspace_id", workspaceID),
+		zap.String("input_r2_key", inputR2Key),
+		zap.String("output_r2_key", outputR2Key),
+	)
+
+	return c.JSON(http.StatusOK, map[string]bool{"received": true})
+}
+
+func findString(m map[string]any, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprint(v)
+}
+
+func findMap(m map[string]any, key string) map[string]any {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return map[string]any{}
+	}
+	out, ok := v.(map[string]any)
+	if ok {
+		return out
+	}
+	return map[string]any{}
 }
 
 // ClerkWebhook handles Clerk organization deletion webhooks

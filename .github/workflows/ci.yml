@@ -79,6 +79,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install FFmpeg dev libs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libavcodec-dev \
+            libavformat-dev \
+            libavfilter-dev \
+            libavutil-dev \
+            libswscale-dev \
+            libswresample-dev \
+            libavdevice-dev
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -90,8 +103,8 @@ jobs:
 
       - name: Check
         working-directory: src/services/postprocess
-        run: cargo check
+        run: cargo check --features ffmpeg
 
       - name: Clippy
         working-directory: src/services/postprocess
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --features ffmpeg -- -D warnings

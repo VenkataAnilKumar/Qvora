@@ -1,10 +1,14 @@
 package task
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"strings"
 
 	"github.com/hibiken/asynq"
 )
@@ -43,11 +47,44 @@ func HandlePostprocess(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("RUST_POSTPROCESS_URL not set")
 	}
 
-	// TODO: POST to Rust Axum /process with payload
-	//   Rust service fetches from R2, processes (watermark, captions, transcode, 9:16 reframe), uploads back to R2
-	//   Then upload to Mux and store mux_asset_id + mux_playback_id in video_variants
-	_ = rustURL
-	_ = ctx
+	body, err := json.Marshal(map[string]any{
+		"variant_id":    payload.VariantID,
+		"workspace_id":  payload.WorkspaceID,
+		"input_r2_key":  payload.InputR2Key,
+		"output_r2_key": payload.OutputR2Key,
+		"watermark":     payload.Watermark,
+		"add_captions":  payload.AddCaptions,
+		"script":        payload.Script,
+	})
+	if err != nil {
+		_ = patchJobStatus(payload.JobID, payload.WorkspaceID, "failed")
+		return fmt.Errorf("marshal rust request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		strings.TrimRight(rustURL, "/")+"/process",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		_ = patchJobStatus(payload.JobID, payload.WorkspaceID, "failed")
+		return fmt.Errorf("build rust request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		_ = patchJobStatus(payload.JobID, payload.WorkspaceID, "failed")
+		return fmt.Errorf("post to rust process endpoint: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= http.StatusBadRequest {
+		_ = patchJobStatus(payload.JobID, payload.WorkspaceID, "failed")
+		return fmt.Errorf("rust process HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
 
 	// Transition: postprocessing → complete
 	// Note: in production this only fires after all variants for the job are done

@@ -32,15 +32,15 @@ hmac = "0.13"
 sha2 = "0.11"
 hex = "0.4"
 
-# ffmpeg-sys — CPU-bound video processing
+# ffmpeg bindings — CPU-bound video processing
 # Linked against system ffmpeg in Docker; optional for local Windows development
-[dependencies.ffmpeg-sys-next]
-version = "7"
+[dependencies.ffmpeg-next]
+version = "8.1.0"
 optional = true
 
 [features]
 default = []
-ffmpeg = ["ffmpeg-sys-next"]
+ffmpeg = ["ffmpeg-next"]
 
 [profile.release]
 opt-level = 3

@@ -1,10 +1,23 @@
-use std::path::PathBuf;
-use aws_sdk_s3::Client as S3Client;
-use anyhow::Result;
-use tracing::info;
-use tempfile::NamedTempFile;
+use std::collections::HashMap;
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+use anyhow::{anyhow, Context, Result};
+use aws_sdk_s3::Client as S3Client;
+use tempfile::NamedTempFile;
+use tracing::info;
+
 use crate::mux::MuxClient;
+
+#[cfg(feature = "ffmpeg")]
+extern crate ffmpeg_next as ffmpeg;
+
+#[cfg(feature = "ffmpeg")]
+use ffmpeg::{codec, encoder, filter, format, frame, media, Dictionary, Packet, Rational};
+
+#[cfg(feature = "ffmpeg")]
+static FFMPEG_INIT: OnceLock<()> = OnceLock::new();
 
 /// Processor config for a single job
 pub struct ProcessorConfig {
@@ -20,7 +33,7 @@ pub struct ProcessorConfig {
 }
 
 impl ProcessorConfig {
-    /// Full pipeline: download → ffmpeg → upload
+    /// Full pipeline: download -> transcode -> upload
     pub async fn process(
         &self,
         input_r2_key: &str,
@@ -32,26 +45,22 @@ impl ProcessorConfig {
             "starting postprocess pipeline"
         );
 
-        // Step 1: Download from R2
         let input_path = self.download_from_r2(input_r2_key).await?;
         info!(variant_id = %self.variant_id, "downloaded from R2");
 
-        // Step 2: Run ffmpeg transforms
         let output_path = self
-            .run_ffmpeg(
+            .run_transcode(
                 &input_path,
                 self.watermark,
                 self.add_captions,
                 self.script.as_deref(),
             )
             .await?;
-        info!(variant_id = %self.variant_id, "ffmpeg processing complete");
+        info!(variant_id = %self.variant_id, "video processing complete");
 
-        // Step 3: Upload processed video to R2
         let r2_presigned_url = self.upload_to_r2(&output_path, output_r2_key).await?;
         info!(variant_id = %self.variant_id, "uploaded to R2");
 
-        // Step 4: Upload to Mux HLS from R2 URL
         let mux_result = self
             .mux_client
             .upload_from_url(&r2_presigned_url, &self.variant_id)
@@ -63,7 +72,6 @@ impl ProcessorConfig {
             "uploaded to Mux"
         );
 
-        // Cleanup
         let _ = std::fs::remove_file(&input_path);
         let _ = std::fs::remove_file(&output_path);
 
@@ -72,11 +80,10 @@ impl ProcessorConfig {
             output_r2_key: output_r2_key.to_string(),
             mux_asset_id: mux_result.asset_id,
             mux_playable_id: mux_result.playback_id,
-            duration_ms: 0, // TODO: extract from ffmpeg
+            duration_ms: 0,
         })
     }
 
-    /// Download video from R2 to local tempfile
     async fn download_from_r2(&self, r2_key: &str) -> Result<PathBuf> {
         let mut temp_file = NamedTempFile::new()?;
         let temp_path = temp_file.path().to_path_buf();
@@ -88,13 +95,13 @@ impl ProcessorConfig {
             .key(r2_key)
             .send()
             .await
-            .map_err(|e| anyhow::anyhow!("R2 download failed: {}", e))?;
+            .map_err(|e| anyhow!("R2 download failed: {}", e))?;
 
         let bytes = body
             .body
             .collect()
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to read R2 stream: {}", e))?
+            .map_err(|e| anyhow!("Failed to read R2 stream: {}", e))?
             .into_bytes();
 
         temp_file.write_all(&bytes)?;
@@ -103,17 +110,8 @@ impl ProcessorConfig {
         Ok(temp_path)
     }
 
-    /// Run ffmpeg transformations on input video
-    ///
-    /// Pipeline:
-    /// 1. Video scale to 1080×1920 (9:16 aspect)
-    /// 2. Add letterbox if needed (pad to exact 1080×1920)
-    /// 3. Overlay watermark (10% opacity, top-left)
-    /// 4. Burn in captions (if script provided)
-    /// 5. Transcode to H.264 (2500kbps video, 128kbps audio)
-    /// 6. Output MP4 (H.264 + AAC)
     #[allow(unused_variables)]
-    async fn run_ffmpeg(
+    async fn run_transcode(
         &self,
         input_path: &PathBuf,
         watermark: bool,
@@ -122,100 +120,54 @@ impl ProcessorConfig {
     ) -> Result<PathBuf> {
         #[cfg(feature = "ffmpeg")]
         {
-            return self.run_ffmpeg_with_cli(input_path, watermark, add_captions, script).await;
+            return self
+                .run_transcode_with_bindings(input_path, watermark, add_captions, script)
+                .await;
         }
 
         #[cfg(not(feature = "ffmpeg"))]
         {
-            Err(anyhow::anyhow!(
+            Err(anyhow!(
                 "ffmpeg feature not enabled; rebuild with --features ffmpeg in Docker"
             ))
         }
     }
 
-    /// FFmpeg CLI implementation (enabled with --features ffmpeg)
     #[cfg(feature = "ffmpeg")]
-    async fn run_ffmpeg_with_cli(
+    async fn run_transcode_with_bindings(
         &self,
         input_path: &PathBuf,
         watermark: bool,
         add_captions: bool,
         script: Option<&str>,
     ) -> Result<PathBuf> {
-        use std::process::Command;
-
-        let mut output_file = NamedTempFile::new()?;
+        let output_file = NamedTempFile::new()?;
         let output_path = output_file.path().to_path_buf();
-        drop(output_file); // Close to allow ffmpeg to write
+        drop(output_file);
 
-        // Build filter chain
-        let mut filters = vec![];
-
-        // Scale to 9:16 with letterbox
-        filters.push("scale=1080:1920:force_original_aspect_ratio=decrease".to_string());
-        filters.push("pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black".to_string());
-
-        // Add watermark overlay (if enabled)
-        if watermark {
-            // Simple watermark: draw text "Qvora" in bottom-right, 10% opacity
-            filters.push(
-                "drawtext=text='Qvora':fontsize=48:fontcolor=white@0.1:x=w-200:y=h-100:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-                    .to_string(),
-            );
-        }
-
-        // Add captions (if script provided)
-        if add_captions && script.is_some() {
-            tracing::warn!(variant_id = %self.variant_id, "caption burn-in prepared but implementation deferred to Phase 3 MVP");
-            // TODO: Implement SRT parsing and drawtext for each caption
-            // filters.push(format!("subtitles='{}'", srt_file));
-        }
-
-        let filter_chain = filters.join(",");
-
-        // Construct ffmpeg command
-        let mut cmd = Command::new("ffmpeg");
-        cmd.arg("-i")
-            .arg(input_path)
-            .arg("-filter:v")
-            .arg(&filter_chain)
-            .arg("-c:v")
-            .arg("libx264") // H.264 codec
-            .arg("-b:v")
-            .arg("2500k") // 2.5 Mbps video bitrate
-            .arg("-preset")
-            .arg("faster") // Balance speed/quality (faster = less encode time)
-            .arg("-c:a")
-            .arg("aac") // AAC audio codec
-            .arg("-b:a")
-            .arg("128k") // 128kbps audio
-            .arg("-y") // Overwrite output
-            .arg(&output_path);
+        let filter_spec = build_filter_spec(watermark, add_captions, script);
 
         info!(
             variant_id = %self.variant_id,
-            filter_chain = %filter_chain,
-            "running ffmpeg"
+            filter_spec = %filter_spec,
+            "running FFmpeg bindings pipeline"
         );
 
-        let output = cmd
-            .output()
-            .map_err(|e| anyhow::anyhow!("ffmpeg spawn failed: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            tracing::warn!(variant_id = %self.variant_id, stderr = %stderr, "ffmpeg error");
-            return Err(anyhow::anyhow!("ffmpeg failed: {}", stderr));
-        }
+        tokio::task::spawn_blocking({
+            let input_path = input_path.clone();
+            let output_path = output_path.clone();
+            move || transcode_video(&input_path, &output_path, &filter_spec)
+        })
+        .await
+        .map_err(|e| anyhow!("ffmpeg task join failed: {e}"))??;
 
         Ok(output_path)
     }
 
-    /// Upload processed video to R2 and return presigned URL
     async fn upload_to_r2(&self, local_path: &PathBuf, r2_key: &str) -> Result<String> {
         let body = tokio::fs::read(local_path)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to read processed file: {}", e))?;
+            .map_err(|e| anyhow!("Failed to read processed file: {}", e))?;
 
         self.s3_client
             .put_object()
@@ -225,9 +177,8 @@ impl ProcessorConfig {
             .content_type("video/mp4")
             .send()
             .await
-            .map_err(|e| anyhow::anyhow!("R2 upload failed: {}", e))?;
+            .map_err(|e| anyhow!("R2 upload failed: {}", e))?;
 
-        // Generate presigned URL for Mux to download from (valid for 1 hour)
         use aws_sdk_s3::presigning::PresigningConfig;
         use std::time::Duration;
 
@@ -238,15 +189,427 @@ impl ProcessorConfig {
             .key(r2_key)
             .presigned(
                 PresigningConfig::builder()
-                    .expires_in(Duration::from_secs(3600)) // 1 hour
+                    .expires_in(Duration::from_secs(3600))
                     .build()
-                    .map_err(|e| anyhow::anyhow!("Presigned config failed: {}", e))?,
+                    .map_err(|e| anyhow!("Presigned config failed: {}", e))?,
             )
             .await
-            .map_err(|e| anyhow::anyhow!("Presigned URL generation failed: {}", e))?;
+            .map_err(|e| anyhow!("Presigned URL generation failed: {}", e))?;
 
         Ok(presigned_request.uri().to_string())
     }
+}
+
+#[cfg(feature = "ffmpeg")]
+fn transcode_video(input_path: &Path, output_path: &Path, filter_spec: &str) -> Result<()> {
+    init_ffmpeg()?;
+
+    let input_str = input_path.to_string_lossy().into_owned();
+    let output_str = output_path.to_string_lossy().into_owned();
+
+    let mut ictx = format::input(&input_str)
+        .with_context(|| format!("failed to open input {}", input_path.display()))?;
+    let mut octx = format::output(&output_str)
+        .with_context(|| format!("failed to open output {}", output_path.display()))?;
+
+    let mut stream_mapping: Vec<isize> = vec![0; ictx.nb_streams() as _];
+    let mut ist_time_bases = vec![Rational(0, 0); ictx.nb_streams() as _];
+    let mut ost_time_bases = vec![Rational(0, 0); ictx.nb_streams() as _];
+    let mut transcoders = HashMap::new();
+    let mut ost_index = 0;
+
+    for (ist_index, ist) in ictx.streams().enumerate() {
+        let medium = ist.parameters().medium();
+
+        if medium != media::Type::Audio
+            && medium != media::Type::Video
+            && medium != media::Type::Subtitle
+        {
+            stream_mapping[ist_index] = -1;
+            continue;
+        }
+
+        stream_mapping[ist_index] = ost_index;
+        ist_time_bases[ist_index] = ist.time_base();
+
+        if medium == media::Type::Video {
+            transcoders.insert(
+                ist_index,
+                VideoTranscoder::new(&ist, &mut octx, ost_index as usize, filter_spec)
+                    .with_context(|| {
+                        format!("failed to initialize video transcoder for stream {ist_index}")
+                    })?,
+            );
+        } else {
+            let mut ost = octx
+                .add_stream(encoder::find(codec::Id::None))
+                .context("failed to add passthrough stream")?;
+            ost.set_parameters(ist.parameters());
+            unsafe {
+                (*ost.parameters().as_mut_ptr()).codec_tag = 0;
+            }
+        }
+
+        ost_index += 1;
+    }
+
+    octx.set_metadata(ictx.metadata().to_owned());
+    octx.write_header().context("failed to write output header")?;
+
+    for (index, _) in octx.streams().enumerate() {
+        ost_time_bases[index] = octx
+            .stream(index)
+            .ok_or_else(|| anyhow!("missing output stream {index}"))?
+            .time_base();
+    }
+
+    for (stream, mut packet) in ictx.packets() {
+        let ist_index = stream.index();
+        let mapped_index = stream_mapping[ist_index];
+
+        if mapped_index < 0 {
+            continue;
+        }
+
+        let ost_time_base = ost_time_bases[mapped_index as usize];
+
+        if let Some(transcoder) = transcoders.get_mut(&ist_index) {
+            transcoder.send_packet_to_decoder(&packet)?;
+            transcoder.receive_and_process_decoded_frames(&mut octx, ost_time_base)?;
+        } else {
+            packet.rescale_ts(ist_time_bases[ist_index], ost_time_base);
+            packet.set_position(-1);
+            packet.set_stream(mapped_index as usize);
+            packet
+                .write_interleaved(&mut octx)
+                .context("failed to write passthrough packet")?;
+        }
+    }
+
+    for (ist_index, transcoder) in transcoders.iter_mut() {
+        let ost_time_base = ost_time_bases[*ist_index];
+        transcoder.send_eof_to_decoder()?;
+        transcoder.receive_and_process_decoded_frames(&mut octx, ost_time_base)?;
+        transcoder.flush_filter()?;
+        transcoder.get_and_process_filtered_frames(&mut octx, ost_time_base)?;
+        transcoder.send_eof_to_encoder()?;
+        transcoder.receive_and_process_encoded_packets(&mut octx, ost_time_base)?;
+    }
+
+    octx.write_trailer().context("failed to finalize output")?;
+    Ok(())
+}
+
+#[cfg(feature = "ffmpeg")]
+struct VideoTranscoder {
+    ost_index: usize,
+    decoder: ffmpeg::decoder::Video,
+    encoder: ffmpeg::encoder::Video,
+    filter: filter::Graph,
+    input_time_base: Rational,
+}
+
+#[cfg(feature = "ffmpeg")]
+impl VideoTranscoder {
+    fn new(
+        ist: &format::stream::Stream,
+        octx: &mut format::context::Output,
+        ost_index: usize,
+        filter_spec: &str,
+    ) -> Result<Self> {
+        let global_header = octx.format().flags().contains(format::Flags::GLOBAL_HEADER);
+        let decoder = ffmpeg::codec::context::Context::from_parameters(ist.parameters())?
+            .decoder()
+            .video()?;
+
+        let codec = encoder::find(codec::Id::H264)
+            .ok_or_else(|| anyhow!("H.264 encoder not available"))?;
+        let mut ost = octx
+            .add_stream(Some(codec))
+            .context("failed to add video output stream")?;
+
+        let mut encoder = ffmpeg::codec::context::Context::new_with_codec(codec)
+            .encoder()
+            .video()?;
+        ost.set_parameters(&encoder);
+        encoder.set_width(1080);
+        encoder.set_height(1920);
+        encoder.set_aspect_ratio((1, 1));
+        encoder.set_format(ffmpeg::format::Pixel::YUV420P);
+        encoder.set_time_base(ist.time_base());
+        encoder.set_frame_rate(decoder.frame_rate());
+        encoder.set_bit_rate(2_500_000);
+        encoder.set_max_b_frames(2);
+        encoder.set_gop(48);
+
+        if global_header {
+            encoder.set_flags(codec::Flags::GLOBAL_HEADER);
+        }
+
+        let mut options = Dictionary::new();
+        options.set("preset", "faster");
+        let opened_encoder = encoder.open_as_with(codec, options)?;
+        ost.set_parameters(&opened_encoder);
+
+        let filter = build_video_filter(filter_spec, &decoder, &opened_encoder)?;
+
+        Ok(Self {
+            ost_index,
+            decoder,
+            encoder: opened_encoder,
+            filter,
+            input_time_base: ist.time_base(),
+        })
+    }
+
+    fn send_packet_to_decoder(&mut self, packet: &Packet) -> Result<()> {
+        self.decoder
+            .send_packet(packet)
+            .context("failed to feed packet to decoder")
+    }
+
+    fn send_eof_to_decoder(&mut self) -> Result<()> {
+        self.decoder.send_eof().context("failed to send decoder EOF")
+    }
+
+    fn send_frame_to_encoder(&mut self, frame: &frame::Video) -> Result<()> {
+        self.encoder
+            .send_frame(frame)
+            .context("failed to feed frame to encoder")
+    }
+
+    fn send_eof_to_encoder(&mut self) -> Result<()> {
+        self.encoder.send_eof().context("failed to send encoder EOF")
+    }
+
+    fn add_frame_to_filter(&mut self, frame: &frame::Video) -> Result<()> {
+        self.filter
+            .get("in")
+            .ok_or_else(|| anyhow!("missing filter input"))?
+            .source()
+            .add(frame)
+            .context("failed to push frame into filter graph")
+    }
+
+    fn flush_filter(&mut self) -> Result<()> {
+        self.filter
+            .get("in")
+            .ok_or_else(|| anyhow!("missing filter input"))?
+            .source()
+            .flush()
+            .context("failed to flush filter graph")
+    }
+
+    fn get_and_process_filtered_frames(
+        &mut self,
+        octx: &mut format::context::Output,
+        ost_time_base: Rational,
+    ) -> Result<()> {
+        let mut filtered = frame::Video::empty();
+
+        loop {
+            let result = self
+                .filter
+                .get("out")
+                .ok_or_else(|| anyhow!("missing filter output"))?
+                .sink()
+                .frame(&mut filtered);
+
+            match result {
+                Ok(()) => {
+                    self.send_frame_to_encoder(&filtered)?;
+                    self.receive_and_process_encoded_packets(octx, ost_time_base)?;
+                }
+                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::util::error::EAGAIN => {
+                    break
+                }
+                Err(ffmpeg::Error::Eof) => break,
+                Err(err) => return Err(anyhow!(err)).context("failed to pull filtered frame"),
+            }
+        }
+
+        Ok(())
+    }
+
+    fn receive_and_process_decoded_frames(
+        &mut self,
+        octx: &mut format::context::Output,
+        ost_time_base: Rational,
+    ) -> Result<()> {
+        let mut decoded = frame::Video::empty();
+
+        loop {
+            match self.decoder.receive_frame(&mut decoded) {
+                Ok(()) => {
+                    let timestamp = decoded.timestamp();
+                    decoded.set_pts(timestamp);
+                    self.add_frame_to_filter(&decoded)?;
+                    self.get_and_process_filtered_frames(octx, ost_time_base)?;
+                }
+                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::util::error::EAGAIN => {
+                    break
+                }
+                Err(ffmpeg::Error::Eof) => break,
+                Err(err) => return Err(anyhow!(err)).context("failed to decode frame"),
+            }
+        }
+
+        Ok(())
+    }
+
+    fn receive_and_process_encoded_packets(
+        &mut self,
+        octx: &mut format::context::Output,
+        ost_time_base: Rational,
+    ) -> Result<()> {
+        let mut encoded = Packet::empty();
+
+        loop {
+            match self.encoder.receive_packet(&mut encoded) {
+                Ok(()) => {
+                    encoded.set_stream(self.ost_index);
+                    encoded.rescale_ts(self.input_time_base, ost_time_base);
+                    encoded
+                        .write_interleaved(octx)
+                        .context("failed to write encoded packet")?;
+                }
+                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::util::error::EAGAIN => {
+                    break
+                }
+                Err(ffmpeg::Error::Eof) => break,
+                Err(err) => {
+                    return Err(anyhow!(err)).context("failed to receive encoded packet")
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(feature = "ffmpeg")]
+fn build_video_filter(
+    filter_spec: &str,
+    decoder: &ffmpeg::decoder::Video,
+    encoder: &ffmpeg::encoder::Video,
+) -> Result<filter::Graph> {
+    let mut graph = filter::Graph::new();
+
+    let pixel_format = decoder
+        .format()
+        .descriptor()
+        .ok_or_else(|| anyhow!("missing pixel format descriptor"))?
+        .name();
+
+    let args = format!(
+        "video_size={}x{}:pix_fmt={}:time_base={}:pixel_aspect={}",
+        decoder.width(),
+        decoder.height(),
+        pixel_format,
+        decoder.time_base(),
+        decoder.aspect_ratio(),
+    );
+
+    graph
+        .add(
+            &filter::find("buffer").ok_or_else(|| anyhow!("buffer filter not available"))?,
+            "in",
+            &args,
+        )
+        .context("failed to create filter input")?;
+    graph
+        .add(
+            &filter::find("buffersink")
+                .ok_or_else(|| anyhow!("buffersink filter not available"))?,
+            "out",
+            "",
+        )
+        .context("failed to create filter output")?;
+
+    {
+        let mut out = graph
+            .get("out")
+            .ok_or_else(|| anyhow!("missing filter output context"))?;
+        out.set_pixel_format(encoder.format());
+    }
+
+    graph
+        .output("in", 0)?
+        .input("out", 0)?
+        .parse(filter_spec)
+        .context("failed to parse video filter graph")?;
+    graph
+        .validate()
+        .context("failed to validate video filter graph")?;
+
+    Ok(graph)
+}
+
+#[cfg(feature = "ffmpeg")]
+fn build_filter_spec(watermark: bool, add_captions: bool, script: Option<&str>) -> String {
+    let mut filters = vec![
+        "scale=1080:1920:force_original_aspect_ratio=decrease".to_string(),
+        "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black".to_string(),
+    ];
+
+    if watermark {
+        filters.push(
+            "drawtext=text='Qvora':fontsize=48:fontcolor=white@0.1:x=w-200:y=h-100:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+                .to_string(),
+        );
+    }
+
+    if add_captions {
+        if let Some(script) = script.and_then(normalize_caption_text) {
+            filters.push(format!(
+                "drawtext=text='{}':fontsize=42:fontcolor=white:borderw=3:bordercolor=black@0.75:line_spacing=12:x=(w-text_w)/2:y=h-text_h-140:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                escape_drawtext(&script)
+            ));
+        }
+    }
+
+    filters.join(",")
+}
+
+#[cfg(feature = "ffmpeg")]
+fn normalize_caption_text(script: &str) -> Option<String> {
+    let collapsed = script
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .chunks(6)
+        .map(|chunk| chunk.join(" "))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let trimmed = collapsed.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+#[cfg(feature = "ffmpeg")]
+fn escape_drawtext(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace(':', "\\:")
+        .replace('\'', "\\'")
+        .replace('%', "\\%")
+        .replace(',', "\\,")
+        .replace('\n', "\\n")
+}
+
+#[cfg(feature = "ffmpeg")]
+fn init_ffmpeg() -> Result<()> {
+    if FFMPEG_INIT.get().is_none() {
+        ffmpeg::init()
+            .map_err(|err| anyhow!(err))
+            .context("failed to initialize ffmpeg")?;
+        let _ = FFMPEG_INIT.set(());
+    }
+
+    Ok(())
 }
 
 /// Result of a successful postprocess job

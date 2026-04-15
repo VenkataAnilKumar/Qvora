@@ -11,18 +11,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavutil-dev \
     libswscale-dev \
     libswresample-dev \
+    libavdevice-dev \
     clang \
     && rm -rf /var/lib/apt/lists/*
 
 # Cache dependencies
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --release
+RUN cargo build --release --features ffmpeg
 RUN rm src/main.rs
 
 COPY src ./src
 RUN touch src/main.rs
-RUN cargo build --release
+RUN cargo build --release --features ffmpeg
 
 # ---- Final image ----
 FROM debian:bookworm-slim

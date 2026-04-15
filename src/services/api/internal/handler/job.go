@@ -5,33 +5,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/qvora/api/internal/db"
 	"github.com/labstack/echo/v4"
 	appmiddleware "github.com/qvora/api/internal/middleware"
 )
-
-type inMemoryJob struct {
-	JobID      string    `json:"job_id"`
-	OrgID      string    `json:"org_id"`
-	ProductURL string    `json:"product_url"`
-	Model      string    `json:"model"`
-	Status     string    `json:"status"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-}
-
-var jobsStore = struct {
-	sync.RWMutex
-	byID map[string]inMemoryJob
-}{
-	byID: make(map[string]inMemoryJob),
-}
 
 var allowedModels = map[string]struct{}{
 	"veo3":    {},
@@ -98,33 +80,38 @@ func SubmitJob(c echo.Context) error {
 		return c.JSON(http.StatusPaymentRequired, map[string]string{"error": "variant_limit_exceeded"})
 	}
 
-	job := inMemoryJob{
-		JobID:      uuid.NewString(),
-		OrgID:      claims.OrgID,
-		ProductURL: req.ProductURL,
-		Model:      req.Model,
-		Status:     "queued",
-		CreatedAt:  time.Now().UTC(),
-		UpdatedAt:  time.Now().UTC(),
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 
-	jobsStore.Lock()
-	jobsStore.byID[job.JobID] = job
-	jobsStore.Unlock()
+	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
+	}
+
+	job, err := q.CreateJob(c.Request().Context(), db.CreateJobParams{
+		WorkspaceID: workspaceID,
+		ProductUrl:  req.ProductURL,
+		Model:       req.Model,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_create_failed"})
+	}
 
 	// TODO: enqueue asynq task to Railway Redis (TCP)
 	// scrape task → generation task → postprocess task
 
 	return c.JSON(http.StatusAccepted, map[string]any{
-		"job_id":             job.JobID,
-		"org_id":             job.OrgID,
+		"job_id":             uuidString(job.ID),
+		"org_id":             claims.OrgID,
 		"status":             job.Status,
-		"product_url":        job.ProductURL,
+		"product_url":        job.ProductUrl,
 		"model":              job.Model,
 		"variants_per_angle": approvedVariants,
 		"plan_tier":          planTier,
-		"created_at":         job.CreatedAt,
-		"updated_at":         job.UpdatedAt,
+		"created_at":         tsTime(job.CreatedAt),
+		"updated_at":         tsTime(job.UpdatedAt),
 	})
 }
 
@@ -136,25 +123,40 @@ func GetJob(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}
 	jobID := c.Param("id")
-
-	jobsStore.RLock()
-	job, ok := jobsStore.byID[jobID]
-	jobsStore.RUnlock()
-	if !ok {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "job_not_found"})
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if job.OrgID != claims.OrgID {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden"})
+
+	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
+	}
+
+	parsedJobID, err := parseUUID(jobID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_job_id"})
+	}
+
+	job, err := q.GetJobByID(c.Request().Context(), db.GetJobByIDParams{
+		ID:          parsedJobID,
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "job_not_found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_lookup_failed"})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"job_id":      jobID,
-		"org_id":      job.OrgID,
+		"job_id":      uuidString(job.ID),
+		"org_id":      claims.OrgID,
 		"status":      job.Status,
-		"product_url": job.ProductURL,
+		"product_url": job.ProductUrl,
 		"model":       job.Model,
-		"created_at":  job.CreatedAt,
-		"updated_at":  job.UpdatedAt,
+		"created_at":  tsTime(job.CreatedAt),
+		"updated_at":  tsTime(job.UpdatedAt),
 	})
 }
 
@@ -179,30 +181,49 @@ func UpdateJobStatus(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_status"})
 	}
 
-	jobsStore.Lock()
-	job, ok := jobsStore.byID[jobID]
-	if !ok {
-		jobsStore.Unlock()
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "job_not_found"})
-	}
-	if job.OrgID != claims.OrgID {
-		jobsStore.Unlock()
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden"})
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 
-	job.Status = req.Status
-	job.UpdatedAt = time.Now().UTC()
-	jobsStore.byID[jobID] = job
-	jobsStore.Unlock()
+	parsedJobID, err := parseUUID(jobID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_job_id"})
+	}
+
+	// Resolve requested org into workspace_id and ensure job belongs to workspace.
+	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
+	}
+
+	job, err := q.GetJobByID(c.Request().Context(), db.GetJobByIDParams{
+		ID:          parsedJobID,
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "job_not_found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_lookup_failed"})
+	}
+
+	updated, err := q.UpdateJobStatus(c.Request().Context(), db.UpdateJobStatusParams{
+		ID:     job.ID,
+		Status: req.Status,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_update_failed"})
+	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"job_id":      job.JobID,
-		"org_id":      job.OrgID,
-		"status":      job.Status,
-		"product_url": job.ProductURL,
-		"model":       job.Model,
-		"created_at":  job.CreatedAt,
-		"updated_at":  job.UpdatedAt,
+		"job_id":      uuidString(updated.ID),
+		"org_id":      claims.OrgID,
+		"status":      updated.Status,
+		"product_url": updated.ProductUrl,
+		"model":       updated.Model,
+		"created_at":  tsTime(updated.CreatedAt),
+		"updated_at":  tsTime(updated.UpdatedAt),
 	})
 }
 
@@ -226,21 +247,36 @@ func ListJobs(c echo.Context) error {
 		limit = parsed
 	}
 
-	jobsStore.RLock()
-	jobs := make([]inMemoryJob, 0, len(jobsStore.byID))
-	for _, job := range jobsStore.byID {
-		if job.OrgID == claims.OrgID {
-			jobs = append(jobs, job)
-		}
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	jobsStore.RUnlock()
 
-	sort.Slice(jobs, func(i, j int) bool {
-		return jobs[i].CreatedAt.After(jobs[j].CreatedAt)
+	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
+	}
+
+	rows, err := q.ListJobsByWorkspace(c.Request().Context(), db.ListJobsByWorkspaceParams{
+		WorkspaceID: workspaceID,
+		Limit:       int32(limit),
+		Offset:      0,
 	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "jobs_list_failed"})
+	}
 
-	if len(jobs) > limit {
-		jobs = jobs[:limit]
+	jobs := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		jobs = append(jobs, map[string]any{
+			"job_id":      uuidString(row.ID),
+			"org_id":      claims.OrgID,
+			"status":      row.Status,
+			"product_url": row.ProductUrl,
+			"model":       row.Model,
+			"created_at":  tsTime(row.CreatedAt),
+			"updated_at":  tsTime(row.UpdatedAt),
+		})
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -259,14 +295,30 @@ func StreamJob(c echo.Context) error {
 	}
 	jobID := c.Param("id")
 
-	jobsStore.RLock()
-	job, ok := jobsStore.byID[jobID]
-	jobsStore.RUnlock()
-	if !ok {
-		return c.JSON(http.StatusNotFound, map[string]string{"error": "job_not_found"})
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if job.OrgID != claims.OrgID {
-		return c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden"})
+
+	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
+	}
+
+	parsedJobID, err := parseUUID(jobID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_job_id"})
+	}
+
+	_, err = q.GetJobByID(c.Request().Context(), db.GetJobByIDParams{
+		ID:          parsedJobID,
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "job_not_found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_lookup_failed"})
 	}
 
 	c.Response().Header().Set("Content-Type", "text/event-stream")
@@ -293,10 +345,8 @@ func StreamJob(c echo.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			jobsStore.RLock()
-			current, exists := jobsStore.byID[jobID]
-			jobsStore.RUnlock()
-			if !exists {
+			current, err := q.GetJobByID(ctx, db.GetJobByIDParams{ID: parsedJobID, WorkspaceID: workspaceID})
+			if err != nil {
 				return nil
 			}
 

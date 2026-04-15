@@ -66,11 +66,6 @@ func HandleGenerate(ctx context.Context, t *asynq.Task) error {
 	}
 	_ = falRequestID
 
-	// Transition: generating → postprocessing
-	if err := patchJobStatus(payload.JobID, payload.WorkspaceID, "postprocessing"); err != nil {
-		_ = err // non-fatal
-	}
-
 	return nil
 }
 
@@ -81,12 +76,29 @@ type falQueueSubmitResponse struct {
 }
 
 func submitFalQueue(ctx context.Context, falKey, endpoint string, payload GeneratePayload) (string, error) {
+	apiBaseURL := strings.TrimSpace(os.Getenv("API_BASE_URL"))
+	webhookURL := strings.TrimSpace(os.Getenv("FAL_WEBHOOK_URL"))
+	if webhookURL == "" && apiBaseURL != "" {
+		webhookURL = strings.TrimRight(apiBaseURL, "/") + "/webhooks/fal"
+	}
+
+	inputR2Key := fmt.Sprintf("jobs/%s/variants/%s/raw.mp4", payload.JobID, payload.VariantID)
+	outputR2Key := fmt.Sprintf("jobs/%s/variants/%s/processed.mp4", payload.JobID, payload.VariantID)
+
 	body, err := json.Marshal(map[string]any{
 		"prompt": payload.Script,
 		"input": map[string]any{
 			"prompt":           payload.Script,
 			"aspect_ratio":     "9:16",
 			"duration_seconds": 15,
+		},
+		"webhook_url": webhookURL,
+		"metadata": map[string]any{
+			"job_id":        payload.JobID,
+			"variant_id":    payload.VariantID,
+			"workspace_id":  payload.WorkspaceID,
+			"input_r2_key":  inputR2Key,
+			"output_r2_key": outputR2Key,
 		},
 	})
 	if err != nil {

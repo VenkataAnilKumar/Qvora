@@ -6,35 +6,15 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"github.com/qvora/api/internal/db"
 	"github.com/labstack/echo/v4"
 	appmiddleware "github.com/qvora/api/internal/middleware"
 )
 
 const scrapeTaskType = "job:scrape"
-
-type inMemoryBrief struct {
-	BriefID     string    `json:"brief_id"`
-	ScrapeJobID string    `json:"scrape_job_id"`
-	OrgID       string    `json:"org_id"`
-	ProductURL  string    `json:"product_url"`
-	Template    string    `json:"template,omitempty"`
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-var briefsStore = struct {
-	sync.RWMutex
-	byID map[string]inMemoryBrief
-}{
-	byID: make(map[string]inMemoryBrief),
-}
 
 // CreateBrief godoc
 // POST /api/v1/briefs
@@ -61,42 +41,64 @@ func CreateBrief(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_product_url"})
 	}
 
-	brief := inMemoryBrief{
-		BriefID:     uuid.NewString(),
-		ScrapeJobID: uuid.NewString(),
-		OrgID:       claims.OrgID,
-		ProductURL:  req.ProductURL,
-		Template:    strings.TrimSpace(req.Template),
-		Status:      "queued",
-		CreatedAt:   time.Now().UTC(),
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 
-	briefsStore.Lock()
-	briefsStore.byID[brief.BriefID] = brief
-	briefsStore.Unlock()
+	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
+	}
 
-	if err := enqueueScrapeTask(brief.ScrapeJobID, brief.OrgID, brief.ProductURL); err != nil {
+	job, err := q.CreateJob(c.Request().Context(), db.CreateJobParams{
+		WorkspaceID: workspaceID,
+		ProductUrl:  req.ProductURL,
+		Model:       "veo3",
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_create_failed"})
+	}
+
+	brief, err := q.CreateBrief(c.Request().Context(), db.CreateBriefParams{
+		WorkspaceID: workspaceID,
+		ScrapeJobID: job.ID,
+		ProductUrl:  req.ProductURL,
+		Model:       "veo3",
+		Status:      "queued",
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_create_failed"})
+	}
+
+	if err := enqueueScrapeTask(uuidString(job.ID), claims.OrgID, req.ProductURL); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_enqueue_failed"})
 	}
 
-	brief.Status = "scraping"
-	briefsStore.Lock()
-	briefsStore.byID[brief.BriefID] = brief
-	briefsStore.Unlock()
-
-	jobsStore.Lock()
-	jobsStore.byID[brief.ScrapeJobID] = inMemoryJob{
-		JobID:      brief.ScrapeJobID,
-		OrgID:      brief.OrgID,
-		ProductURL: brief.ProductURL,
-		Model:      "veo3",
-		Status:     "scraping",
-		CreatedAt:  brief.CreatedAt,
-		UpdatedAt:  time.Now().UTC(),
+	updatedBrief, err := q.UpdateBriefStatus(c.Request().Context(), db.UpdateBriefStatusParams{
+		ID:     brief.ID,
+		Status: "scraping",
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_update_failed"})
 	}
-	jobsStore.Unlock()
 
-	return c.JSON(http.StatusAccepted, brief)
+	if _, err := q.UpdateJobStatus(c.Request().Context(), db.UpdateJobStatusParams{
+		ID:     job.ID,
+		Status: "scraping",
+	}); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_update_failed"})
+	}
+
+	return c.JSON(http.StatusAccepted, map[string]any{
+		"brief_id":      uuidString(updatedBrief.ID),
+		"scrape_job_id": uuidString(updatedBrief.ScrapeJobID),
+		"org_id":        claims.OrgID,
+		"product_url":   updatedBrief.ProductUrl,
+		"template":      strings.TrimSpace(req.Template),
+		"status":        updatedBrief.Status,
+		"created_at":    tsTime(updatedBrief.CreatedAt),
+	})
 }
 
 // ListBriefs godoc
@@ -107,18 +109,36 @@ func ListBriefs(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}
 
-	briefsStore.RLock()
-	briefs := make([]inMemoryBrief, 0, len(briefsStore.byID))
-	for _, brief := range briefsStore.byID {
-		if brief.OrgID == claims.OrgID {
-			briefs = append(briefs, brief)
-		}
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	briefsStore.RUnlock()
 
-	sort.Slice(briefs, func(i, j int) bool {
-		return briefs[i].CreatedAt.After(briefs[j].CreatedAt)
+	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
+	}
+
+	rows, err := q.ListBriefsByWorkspace(c.Request().Context(), db.ListBriefsByWorkspaceParams{
+		WorkspaceID: workspaceID,
+		Limit:       50,
+		Offset:      0,
 	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "briefs_list_failed"})
+	}
+
+	briefs := make([]map[string]any, 0, len(rows))
+	for _, brief := range rows {
+		briefs = append(briefs, map[string]any{
+			"brief_id":      uuidString(brief.ID),
+			"scrape_job_id": uuidString(brief.ScrapeJobID),
+			"org_id":        claims.OrgID,
+			"product_url":   brief.ProductUrl,
+			"status":        brief.Status,
+			"created_at":    tsTime(brief.CreatedAt),
+		})
+	}
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"org_id": claims.OrgID,
