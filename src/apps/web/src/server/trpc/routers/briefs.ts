@@ -1,11 +1,14 @@
 import { z } from "zod";
 import { generateObject } from "ai";
 import { openai } from "@ai-sdk/openai";
+import { anthropic } from "@ai-sdk/anthropic";
 import { TRPCError } from "@trpc/server";
 import {
   anglesGenerationSchema,
   buildAnglesGenerationPrompt,
-} from "@/ai/prompts/angles-gen.prompt";
+  productExtractionSchema,
+  buildProductExtractionPrompt,
+} from "@qvora/prompts/angles-gen.prompt";
 import { createTRPCRouter, workspaceProcedure } from "../init";
 
 type ApiBrief = {
@@ -78,14 +81,18 @@ export const briefsRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ input, ctx }) => {
-      const openAIKey = process.env.OPENAI_API_KEY;
-      if (!openAIKey) {
+      if (!process.env.OPENAI_API_KEY) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "OPENAI_API_KEY is required for brief generation",
         });
       }
-
+      if (!process.env.ANTHROPIC_API_KEY) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "ANTHROPIC_API_KEY is required for brief generation",
+        });
+      }
       const scrapeEndpoint = process.env.MODAL_SCRAPER_ENDPOINT;
       if (!scrapeEndpoint) {
         throw new TRPCError({
@@ -94,11 +101,10 @@ export const briefsRouter = createTRPCRouter({
         });
       }
 
+      // Step 1: Scrape product URL via Modal Playwright
       const scrapeResponse = await fetch(scrapeEndpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           product_url: input.productUrl,
           workspace_id: ctx.orgId,
@@ -106,28 +112,40 @@ export const briefsRouter = createTRPCRouter({
         }),
         cache: "no-store",
       });
-
       if (!scrapeResponse.ok) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "scrape_failed" });
+      }
+      const scraped = (await scrapeResponse.json()) as ScrapePayload;
+
+      // Step 2: GPT-4o — structure raw scraped data into clean product summary
+      let product: z.infer<typeof productExtractionSchema>;
+      try {
+        const result = await generateObject({
+          model: openai("gpt-4o"),
+          schema: productExtractionSchema,
+          prompt: buildProductExtractionPrompt({ productUrl: input.productUrl, scraped }),
+        });
+        product = result.object;
+      } catch {
         throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "scrape_failed",
+          code: "INTERNAL_SERVER_ERROR",
+          message: "product_extraction_failed",
         });
       }
 
-      const scraped = (await scrapeResponse.json()) as ScrapePayload;
-
-      let object;
+      // Step 3: Claude Sonnet 4.6 — generate creative angles and hooks from product
+      let brief: z.infer<typeof anglesGenerationSchema>;
       try {
         const result = await generateObject({
-          model: openai(input.model),
+          model: anthropic("claude-sonnet-4-6"),
           schema: anglesGenerationSchema,
           prompt: buildAnglesGenerationPrompt({
             productUrl: input.productUrl,
             template: input.template,
-            scraped,
+            product,
           }),
         });
-        object = result.object;
+        brief = result.object;
       } catch {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -135,8 +153,32 @@ export const briefsRouter = createTRPCRouter({
         });
       }
 
-      const createdAt = new Date().toISOString();
+      // Step 4: Persist brief + angles + hooks to Go API
       const briefId = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+      const persistResponse = await fetch(`${GO_API_BASE_URL}/api/v1/briefs`, {
+        method: "POST",
+        headers: buildInternalHeaders({
+          userId: ctx.userId,
+          orgId: ctx.orgId,
+          orgRole: ctx.orgRole,
+          headers: ctx.headers,
+        }),
+        body: JSON.stringify({
+          brief_id: briefId,
+          product_url: input.productUrl,
+          template: input.template ?? null,
+          model: input.model,
+          product,
+          angles: brief.angles,
+          hooks: brief.hooks,
+        }),
+        cache: "no-store",
+      });
+      if (!persistResponse.ok) {
+        // Non-fatal: brief was generated — return result even if persistence fails
+        // The caller can retry persistence independently
+      }
 
       return {
         briefId,
@@ -146,8 +188,9 @@ export const briefsRouter = createTRPCRouter({
         productUrl: input.productUrl,
         model: input.model,
         createdAt,
-        angles: object.angles,
-        hooks: object.hooks,
+        product,
+        angles: brief.angles,
+        hooks: brief.hooks,
       };
     }),
 
@@ -187,4 +230,78 @@ export const briefsRouter = createTRPCRouter({
       })),
     };
   }),
+
+  batchGenerate: workspaceProcedure
+    .input(
+      z.object({
+        briefId: z.string().uuid(),
+        variantsPerSpec: z.number().min(1).max(10).default(1),
+        specs: z
+          .array(
+            z.object({
+              angle: z.string().min(1),
+              hook: z.string().optional(),
+              model: z.enum(["veo3", "kling3", "runway4", "sora2"]).default("veo3"),
+            }),
+          )
+          .min(1)
+          .max(50),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const response = await fetch(
+        `${GO_API_BASE_URL}/api/v1/briefs/${encodeURIComponent(input.briefId)}/batch-generate`,
+        {
+          method: "POST",
+          headers: buildInternalHeaders({
+            userId: ctx.userId,
+            orgId: ctx.orgId,
+            orgRole: ctx.orgRole,
+            headers: ctx.headers,
+          }),
+          body: JSON.stringify({
+            variants_per_spec: input.variantsPerSpec,
+            specs: input.specs.map((spec) => ({
+              angle: spec.angle,
+              hook: spec.hook,
+              model: spec.model,
+            })),
+          }),
+          cache: "no-store",
+        },
+      );
+
+      if (!response.ok) {
+        throw new TRPCError({
+          code:
+            response.status === 404
+              ? "NOT_FOUND"
+              : response.status === 400
+                ? "BAD_REQUEST"
+                : response.status === 402
+                  ? "PAYMENT_REQUIRED"
+                  : "INTERNAL_SERVER_ERROR",
+          message: await parseApiError(response),
+        });
+      }
+
+      return (await response.json()) as {
+        org_id: string;
+        workspace_id: string;
+        brief_id: string;
+        plan_tier: "starter" | "growth" | "agency";
+        total_requested: number;
+        approved_per_spec: number;
+        specs_count: number;
+        jobs: Array<{
+          job_id: string;
+          angle: string;
+          hook: string;
+          model: "veo3" | "kling3" | "runway4" | "sora2";
+          variants_per_spec: number;
+          status: string;
+        }>;
+        message: string;
+      };
+    }),
 });

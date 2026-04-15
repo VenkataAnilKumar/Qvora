@@ -25,7 +25,6 @@ var allowedModels = map[string]struct{}{
 var allowedJobStatuses = map[string]struct{}{
 	"queued":         {},
 	"scraping":       {},
-	"briefing":       {},
 	"generating":     {},
 	"postprocessing": {},
 	"complete":       {},
@@ -70,7 +69,10 @@ func SubmitJob(c echo.Context) error {
 		req.VariantsPerAngle = 3
 	}
 
-	planTier := getWorkspacePlanTier(claims.OrgID)
+	workspaceID, planTier, _, _, err := getWorkspaceForOrg(c, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
+	}
 
 	approvedVariants, err := appmiddleware.EnforceVariantLimit(req.VariantsPerAngle, planTier)
 	if err != nil {
@@ -83,11 +85,6 @@ func SubmitJob(c echo.Context) error {
 	q, err := queries(c.Request().Context())
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
-	}
-
-	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
 	}
 
 	job, err := q.CreateJob(c.Request().Context(), db.CreateJobParams{
@@ -380,8 +377,6 @@ func statusEvent(status string) (eventType string, progress int, message string)
 		return "job_queued", 5, "job accepted"
 	case "scraping":
 		return "scraping_started", 20, "scraping product page"
-	case "briefing":
-		return "brief_started", 55, "generating brief"
 	case "generating":
 		return "generation_started", 75, "generating variants"
 	case "postprocessing":

@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 /// Input for POST /process
 #[derive(Debug, Deserialize)]
 pub struct ProcessRequest {
+    pub request_id: String,
+    pub job_id: String,
     pub variant_id: String,
     pub workspace_id: String,
     pub input_r2_key: String,
@@ -17,6 +19,8 @@ pub struct ProcessRequest {
 /// Output for POST /process (synchronously returned, background operation)
 #[derive(Debug, Serialize)]
 pub struct ProcessResponse {
+    pub request_id: String,
+    pub job_id: String,
     pub variant_id: String,
     pub output_r2_key: String,
     pub status: String, // "accepted" on successful queue
@@ -26,4 +30,22 @@ pub struct ProcessResponse {
     pub mux_playable_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PostprocessCallbackRequest {
+    pub request_id: String,
+    pub job_id: String,
+    pub variant_id: String,
+    pub workspace_id: String,
+    pub status: String, // success | failed
+    pub output_r2_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mux_asset_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mux_playable_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
 }

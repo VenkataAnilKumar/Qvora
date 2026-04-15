@@ -96,7 +96,7 @@ export function JobProgress({ jobId, productUrl }: JobProgressProps) {
   useEffect(() => {
     if (job?.status) {
       setSseStatus(job.status);
-      setSseProgress(PROGRESS_MAP[job.status] ?? sseProgress);
+      setSseProgress((current) => PROGRESS_MAP[job.status] ?? current);
       if (TERMINAL.has(job.status)) setShouldPoll(false);
     }
   }, [job?.status]); // eslint-disable-line react-hooks/exhaustive-deps

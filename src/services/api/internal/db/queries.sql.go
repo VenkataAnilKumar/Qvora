@@ -570,6 +570,39 @@ func (q *Queries) UpdateVariantComplete(ctx context.Context, arg UpdateVariantCo
 	return i, err
 }
 
+const updateVariantFalRequestID = `-- name: UpdateVariantFalRequestID :one
+UPDATE variants
+SET fal_request_id = $2,
+    updated_at     = NOW()
+WHERE id = $1
+RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at
+`
+
+type UpdateVariantFalRequestIDParams struct {
+	ID           pgtype.UUID `db:"id" json:"id"`
+	FalRequestID *string     `db:"fal_request_id" json:"fal_request_id"`
+}
+
+func (q *Queries) UpdateVariantFalRequestID(ctx context.Context, arg UpdateVariantFalRequestIDParams) (Variant, error) {
+	row := q.db.QueryRow(ctx, updateVariantFalRequestID, arg.ID, arg.FalRequestID)
+	var i Variant
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.WorkspaceID,
+		&i.Angle,
+		&i.Status,
+		&i.FalRequestID,
+		&i.MuxAssetID,
+		&i.MuxPlaybackID,
+		&i.R2Key,
+		&i.DurationSecs,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const updateVariantMuxByID = `-- name: UpdateVariantMuxByID :one
 UPDATE variants
 SET mux_asset_id    = $2,

@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/labstack/echo/v4"
@@ -40,6 +42,18 @@ func MuxWebhook(c echo.Context) error {
 	if err := json.Unmarshal(body, &payload); err != nil {
 		zap.L().Error("failed to parse mux payload", zap.Error(err))
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+	}
+
+	if strings.TrimSpace(payload.EventID) != "" {
+		duplicate, dedupErr := recordMuxWebhookEvent(c, payload.EventID, payload.Type, body)
+		if dedupErr != nil {
+			zap.L().Error("failed to persist mux event for dedup", zap.Error(dedupErr), zap.String("event_id", payload.EventID))
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "mux_event_dedup_failed"})
+		}
+		if duplicate {
+			zap.L().Info("duplicate mux webhook ignored", zap.String("event_id", payload.EventID), zap.String("event_type", payload.Type))
+			return c.JSON(http.StatusOK, map[string]any{"received": true, "duplicate": true})
+		}
 	}
 
 	// Only handle video.asset.ready event (when video is ingested and playback is ready)
@@ -93,8 +107,51 @@ func MuxWebhook(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "variant_update_failed"})
 	}
 
+	variants, listErr := q.ListVariantsByJob(c.Request().Context(), updated.JobID)
+	if listErr != nil {
+		zap.L().Warn("failed to list variants for job completion check",
+			zap.Error(listErr),
+			zap.String("job_id", uuidString(updated.JobID)),
+		)
+	} else {
+		allComplete := areAllVariantsComplete(variants)
+
+		if allComplete {
+			if _, updateErr := q.UpdateJobStatus(c.Request().Context(), db.UpdateJobStatusParams{
+				ID:     updated.JobID,
+				Status: "complete",
+			}); updateErr != nil {
+				zap.L().Warn("failed to mark job complete after mux webhook",
+					zap.Error(updateErr),
+					zap.String("job_id", uuidString(updated.JobID)),
+				)
+			} else {
+				zap.L().Info("job marked complete after all variants finished",
+					zap.String("job_id", uuidString(updated.JobID)),
+				)
+			}
+		}
+	}
+
+	usedVariants, incremented, usageErr := incrementWorkspaceUsageForVariant(c, updated.WorkspaceID, updated.ID)
+	if usageErr != nil {
+		zap.L().Error("failed to increment workspace usage",
+			zap.Error(usageErr),
+			zap.String("workspace_id", uuidString(updated.WorkspaceID)),
+			zap.String("variant_id", uuidString(updated.ID)),
+		)
+	} else {
+		zap.L().Info("workspace usage updated",
+			zap.String("workspace_id", uuidString(updated.WorkspaceID)),
+			zap.String("variant_id", uuidString(updated.ID)),
+			zap.Bool("incremented", incremented),
+			zap.Int64("used_variants", usedVariants),
+		)
+	}
+
 	zap.L().Info("mux webhook received",
 		zap.String("variant_id", assetData.Passthrough),
+		zap.String("job_id", uuidString(updated.JobID)),
 		zap.String("asset_id", assetData.ID),
 		zap.String("playback_id", playbackID),
 		zap.String("variant_status", updated.Status),
@@ -118,6 +175,24 @@ type muxAssetData struct {
 	PlaybackIDs []struct {
 		ID string `json:"id"`
 	} `json:"playback_ids"`
+}
+
+func isDuplicateMuxWebhook(rowsAffected int64) bool {
+	return rowsAffected == 0
+}
+
+func areAllVariantsComplete(variants []db.Variant) bool {
+	if len(variants) == 0 {
+		return false
+	}
+
+	for _, variant := range variants {
+		if !strings.EqualFold(strings.TrimSpace(variant.Status), "complete") {
+			return false
+		}
+	}
+
+	return true
 }
 
 // verifyMuxSignature verifies the HMAC-SHA256 signature
@@ -185,13 +260,14 @@ func FalWebhook(c echo.Context) error {
 	defer client.Close()
 
 	postprocessPayload := map[string]any{
-		"job_id":        jobID,
-		"variant_id":    variantID,
-		"workspace_id":  workspaceID,
-		"input_r2_key":  inputR2Key,
-		"output_r2_key": outputR2Key,
-		"watermark":     true,
-		"add_captions":  false,
+		"job_id":                 jobID,
+		"variant_id":             variantID,
+		"workspace_id":           workspaceID,
+		"postprocess_request_id": uuid.NewString(),
+		"input_r2_key":           inputR2Key,
+		"output_r2_key":          outputR2Key,
+		"watermark":              true,
+		"add_captions":           false,
 	}
 
 	data, err := json.Marshal(postprocessPayload)
@@ -199,7 +275,13 @@ func FalWebhook(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "marshal_failed"})
 	}
 
-	task := asynq.NewTask("job:postprocess", data, asynq.Queue("critical"))
+	task := asynq.NewTask(
+		"job:postprocess",
+		data,
+		asynq.Queue("critical"),
+		asynq.MaxRetry(10),
+		asynq.Timeout(20*time.Minute),
+	)
 	if _, err := client.Enqueue(task); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "enqueue_failed"})
 	}
@@ -261,4 +343,25 @@ func ClerkWebhook(c echo.Context) error {
 	_ = eventType // TODO: handle organization.deleted event
 
 	return c.JSON(http.StatusOK, map[string]bool{"received": true})
+}
+
+func recordMuxWebhookEvent(c echo.Context, eventID, eventType string, body []byte) (bool, error) {
+	if dbPool == nil {
+		return false, fmt.Errorf("database_not_initialized")
+	}
+
+	result, err := dbPool.Exec(
+		c.Request().Context(),
+		`INSERT INTO mux_webhook_events (event_id, event_type, payload)
+		 VALUES ($1, $2, $3::jsonb)
+		 ON CONFLICT (event_id) DO NOTHING`,
+		eventID,
+		eventType,
+		string(body),
+	)
+	if err != nil {
+		return false, err
+	}
+
+	return isDuplicateMuxWebhook(result.RowsAffected()), nil
 }

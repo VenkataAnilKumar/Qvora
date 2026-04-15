@@ -7,6 +7,7 @@ import { generationRouter } from "./generation";
 import { jobsRouter } from "./jobs";
 import { orgRouter } from "./org";
 import { projectsRouter } from "./projects";
+import { signalRouter } from "./signal";
 import { systemRouter } from "./system";
 import { variantsRouter } from "./variants";
 import { workspaceRouter } from "./workspace";
@@ -20,6 +21,7 @@ export const appRouter = createTRPCRouter({
   jobs: jobsRouter,
   org: orgRouter,
   projects: projectsRouter,
+  signal: signalRouter,
   system: systemRouter,
   variants: variantsRouter,
   workspace: workspaceRouter,

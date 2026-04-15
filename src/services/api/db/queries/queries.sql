@@ -103,6 +103,13 @@ SELECT * FROM brief_hooks
 WHERE brief_id = $1
 ORDER BY created_at ASC;
 
+-- name: UpdateVariantFalRequestID :one
+UPDATE variants
+SET fal_request_id = $2,
+    updated_at     = NOW()
+WHERE id = $1
+RETURNING *;
+
 -- name: UpdateVariantMuxByID :one
 UPDATE variants
 SET mux_asset_id    = $2,

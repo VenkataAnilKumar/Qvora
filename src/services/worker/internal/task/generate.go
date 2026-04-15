@@ -64,7 +64,12 @@ func HandleGenerate(ctx context.Context, t *asynq.Task) error {
 		_ = patchJobStatus(payload.JobID, payload.WorkspaceID, "failed")
 		return fmt.Errorf("fal queue submit failed: %w", err)
 	}
-	_ = falRequestID
+
+	// Store FAL request ID on variant so the webhook can match the callback.
+	if err := patchVariantFalRequestID(ctx, payload.VariantID, payload.WorkspaceID, falRequestID); err != nil {
+		// Non-fatal: log but don't fail the task — FAL job is already submitted.
+		_ = err
+	}
 
 	return nil
 }

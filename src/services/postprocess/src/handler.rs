@@ -1,9 +1,31 @@
 use axum::{Json, http::StatusCode};
 use serde_json::{Value, json};
-use crate::model::{ProcessRequest, ProcessResponse};
+use crate::model::{PostprocessCallbackRequest, ProcessRequest, ProcessResponse};
 use crate::processor::ProcessorConfig;
 use crate::mux::MuxClient;
 use crate::error::AppError;
+
+fn classify_failure(error_text: &str) -> &'static str {
+    let normalized = error_text.to_lowercase();
+
+    if normalized.contains("ffmpeg") || normalized.contains("transcode") || normalized.contains("codec") {
+        return "ffmpeg";
+    }
+    if normalized.contains("mux") || normalized.contains("playback") || normalized.contains("asset") {
+        return "mux";
+    }
+    if normalized.contains("s3") || normalized.contains("r2") || normalized.contains("bucket") || normalized.contains("upload") || normalized.contains("download") {
+        return "storage";
+    }
+    if normalized.contains("timeout") || normalized.contains("dns") || normalized.contains("connection") || normalized.contains("network") {
+        return "network";
+    }
+    if normalized.contains("callback") || normalized.contains("internal api") {
+        return "callback";
+    }
+
+    "unknown"
+}
 
 /// GET /health
 pub async fn health() -> Json<Value> {
@@ -40,9 +62,14 @@ pub async fn process(
     );
 
     // Validate request
-    if req.variant_id.is_empty() || req.input_r2_key.is_empty() {
+    if req.request_id.is_empty()
+        || req.job_id.is_empty()
+        || req.variant_id.is_empty()
+        || req.workspace_id.is_empty()
+        || req.input_r2_key.is_empty()
+    {
         return Err(AppError::BadRequest(
-            "variant_id and input_r2_key required".to_string(),
+            "request_id, job_id, variant_id, workspace_id and input_r2_key required".to_string(),
         ));
     }
 
@@ -63,18 +90,22 @@ pub async fn process(
     let mux_client = MuxClient::new(mux_access_token, mux_secret_token);
 
     // Spawn async processing task (fire-and-forget)
+    let request_id = req.request_id.clone();
+    let job_id = req.job_id.clone();
     let variant_id = req.variant_id.clone();
     let input_key = req.input_r2_key.clone();
     let output_key = req.output_r2_key.clone();
-    let _workspace_id = req.workspace_id.clone();
+    let workspace_id = req.workspace_id.clone();
     let watermark = req.watermark;
     let add_captions = req.add_captions;
     let script = req.script.clone();
 
     tokio::spawn(async move {
         let processor = ProcessorConfig {
+			request_id: request_id.clone(),
+			job_id: job_id.clone(),
             variant_id: variant_id.clone(),
-            _workspace_id,
+			workspace_id: workspace_id.clone(),
             watermark,
             add_captions,
             script,
@@ -87,23 +118,67 @@ pub async fn process(
         match processor.process(&input_key, &output_key).await {
             Ok(result) => {
                 tracing::info!(
+                    request_id = %request_id,
+                    job_id = %job_id,
                     variant_id = %result.variant_id,
                     output_r2_key = %result.output_r2_key,
                     mux_asset_id = %result.mux_asset_id,
                     mux_playable_id = %result.mux_playable_id,
                     "postprocess completed successfully"
                 );
-                // TODO: Call back to API to mark variant as complete
-                // PATCH /api/v1/variants/{id}/status with mux_asset_id, mux_playable_id, status="complete"
+
+                if let Err(callback_err) = send_postprocess_callback(PostprocessCallbackRequest {
+                    request_id: request_id.clone(),
+                    job_id: job_id.clone(),
+                    variant_id: result.variant_id.clone(),
+                    workspace_id: workspace_id.clone(),
+                    status: "success".to_string(),
+                    output_r2_key: result.output_r2_key.clone(),
+                    mux_asset_id: Some(result.mux_asset_id.clone()),
+                    mux_playable_id: Some(result.mux_playable_id.clone()),
+                    duration_ms: Some(result.duration_ms),
+                    error_message: None,
+                }).await {
+                    tracing::error!(
+                        request_id = %request_id,
+                        variant_id = %variant_id,
+                        error = %callback_err,
+                        "failed to send postprocess success callback"
+                    );
+                }
             }
             Err(e) => {
+				let error_text = e.to_string();
+				let error_type = classify_failure(&error_text);
                 tracing::error!(
+                    request_id = %request_id,
+                    job_id = %job_id,
                     variant_id = %variant_id,
+					workspace_id = %workspace_id,
+					error_type = %error_type,
                     error = %e,
                     "postprocess failed"
                 );
-                // TODO: Call back to API to mark variant as failed
-                // PATCH /api/v1/variants/{id}/status with status="failed"
+
+                if let Err(callback_err) = send_postprocess_callback(PostprocessCallbackRequest {
+                    request_id: request_id.clone(),
+                    job_id: job_id.clone(),
+                    variant_id: variant_id.clone(),
+                    workspace_id: workspace_id.clone(),
+                    status: "failed".to_string(),
+                    output_r2_key: output_key.clone(),
+                    mux_asset_id: None,
+                    mux_playable_id: None,
+                    duration_ms: None,
+                    error_message: Some(format!("{}: {}", error_type, error_text)),
+                }).await {
+                    tracing::error!(
+                        request_id = %request_id,
+                        variant_id = %variant_id,
+                        error = %callback_err,
+                        "failed to send postprocess failure callback"
+                    );
+                }
             }
         }
     });
@@ -112,6 +187,8 @@ pub async fn process(
     Ok((
         StatusCode::ACCEPTED,
         Json(ProcessResponse {
+            request_id: req.request_id,
+            job_id: req.job_id,
             variant_id: req.variant_id,
             output_r2_key: req.output_r2_key,
             status: "accepted".to_string(),
@@ -120,4 +197,46 @@ pub async fn process(
             error: None,
         }),
     ))
+}
+
+async fn send_postprocess_callback(payload: PostprocessCallbackRequest) -> anyhow::Result<()> {
+    let api_base = std::env::var("API_BASE_URL")
+        .map_err(|_| anyhow::anyhow!("API_BASE_URL not set"))?;
+
+    let internal_api_key = std::env::var("INTERNAL_API_KEY")
+        .map_err(|_| anyhow::anyhow!("INTERNAL_API_KEY not set"))?;
+
+    let callback_url = format!(
+        "{}/api/v1/internal/postprocess/callback",
+        api_base.trim_end_matches('/')
+    );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(callback_url)
+        .header("Content-Type", "application/json")
+        .header("X-User-Id", "postprocess-service")
+        .header("X-Org-Id", payload.workspace_id.clone())
+        .header("X-Org-Role", "worker")
+        .header("X-Internal-Api-Key", internal_api_key)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("postprocess callback request failed: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "(no body)".to_string());
+        return Err(anyhow::anyhow!(
+            "postprocess callback failed ({} {}): {}",
+            status.as_u16(),
+            status.canonical_reason().unwrap_or("Unknown"),
+            body
+        ));
+    }
+
+    Ok(())
 }

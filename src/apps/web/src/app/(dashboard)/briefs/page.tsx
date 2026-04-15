@@ -1,10 +1,19 @@
 import Link from "next/link";
 import { Badge, Card, CardContent, CardHeader, CardTitle } from "@qvora/ui";
 import { createServerClient } from "@/lib/trpc/server";
+import { BriefCreatePanel } from "./_components/brief-create-panel";
 
-export default async function BriefsPage() {
+export default async function BriefsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ productUrl?: string; template?: string }>;
+}) {
   const client = await createServerClient();
-  const briefs = await client.briefs.list();
+  const params = (await searchParams) ?? {};
+  const [briefs, recommendations] = await Promise.all([
+    client.briefs.list(),
+    client.signal.getRecommendations({ days: 90, refresh: false }),
+  ]);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-8 sm:px-8 lg:px-12">
@@ -12,6 +21,12 @@ export default async function BriefsPage() {
         <p className="text-xs uppercase tracking-[0.2em] text-white/40">Creative briefing</p>
         <h1 className="text-3xl font-semibold tracking-[-0.03em]">Brief history</h1>
       </header>
+
+      <BriefCreatePanel
+        initialProductUrl={params.productUrl}
+        initialTemplate={params.template}
+        recommendations={recommendations.recommendations}
+      />
 
       {briefs.briefs.length === 0 ? (
         <Card className="border-white/8 bg-white/[0.03]">

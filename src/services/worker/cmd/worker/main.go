@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"go.uber.org/zap"
@@ -51,6 +52,45 @@ func main() {
 	mux.HandleFunc(task.TypeScrape, task.HandleScrape)
 	mux.HandleFunc(task.TypeGenerate, task.HandleGenerate)
 	mux.HandleFunc(task.TypePostprocess, task.HandlePostprocess)
+	mux.HandleFunc(task.TypeSignalRecommendationsRefresh, task.HandleSignalRecommendationsRefresh)
+	mux.HandleFunc(task.TypeSignalMetricsSync, task.HandleSignalMetricsSync)
+	mux.HandleFunc(task.TypeSignalGDPRCleanup, task.HandleSignalGDPRCleanup)
+	mux.HandleFunc(task.TypeJobReconcileStuck, task.HandleJobReconcile)
+
+	scheduler := asynq.NewScheduler(redisOpt, &asynq.SchedulerOpts{
+		Location: time.UTC,
+	})
+	weeklyRefreshTask, err := task.NewSignalRecommendationsRefreshTask(90)
+	if err != nil {
+		log.Fatal("failed to create signal recommendations refresh task", zap.Error(err))
+	}
+	if _, err := scheduler.Register("@weekly", weeklyRefreshTask); err != nil {
+		log.Fatal("failed to register weekly signal recommendations refresh", zap.Error(err))
+	}
+
+	metricsSyncTask, err := task.NewSignalMetricsSyncTask()
+	if err != nil {
+		log.Fatal("failed to create signal metrics sync task", zap.Error(err))
+	}
+	if _, err := scheduler.Register("@every 6h", metricsSyncTask); err != nil {
+		log.Fatal("failed to register signal metrics sync scheduler", zap.Error(err))
+	}
+
+	gdprCleanupTask, err := task.NewSignalGDPRCleanupTask()
+	if err != nil {
+		log.Fatal("failed to create signal gdpr cleanup task", zap.Error(err))
+	}
+	if _, err := scheduler.Register("@daily", gdprCleanupTask); err != nil {
+		log.Fatal("failed to register signal gdpr cleanup scheduler", zap.Error(err))
+	}
+
+	reconcileTask, err := task.NewJobReconcileTask(45)
+	if err != nil {
+		log.Fatal("failed to create job reconcile task", zap.Error(err))
+	}
+	if _, err := scheduler.Register("@every 15m", reconcileTask); err != nil {
+		log.Fatal("failed to register job reconcile scheduler", zap.Error(err))
+	}
 
 	log.Info("starting qvora worker")
 
@@ -63,7 +103,14 @@ func main() {
 		}
 	}()
 
+	go func() {
+		if err := scheduler.Run(); err != nil {
+			log.Fatal("worker scheduler run failed", zap.Error(err))
+		}
+	}()
+
 	<-quit
 	log.Info("shutting down worker")
+	scheduler.Shutdown()
 	srv.Shutdown()
 }

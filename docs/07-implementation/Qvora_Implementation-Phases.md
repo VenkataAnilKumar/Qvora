@@ -61,7 +61,7 @@ Qvora is implemented in three phases:
 | Environment guards | ✅ | Validates OPENAI_API_KEY before calling AI |
 | Response streaming | ✅ | Structured output returned in create response |
 
-**Code Location:** [src/apps/web/src/server/trpc/routers/briefs.ts](../../src/apps/web/src/server/trpc/routers/briefs.ts), [ai/prompts/angles-gen.prompt.ts](../../ai/prompts/angles-gen.prompt.ts)
+**Code Location:** [src/apps/web/src/server/trpc/routers/briefs.ts](../../src/apps/web/src/server/trpc/routers/briefs.ts), [src/ai/prompts/angles-gen.prompt.ts](../../src/ai/prompts/angles-gen.prompt.ts)
 
 **Architecture Decision:** Brief generation moved entirely to web tRPC (AI SDK) to avoid worker latency bottleneck. Worker-side brief task (`task.HandleBrief`) removed from active queue pipeline.
 
@@ -234,8 +234,8 @@ src/apps/web/
 │   │   └── briefs/[id]/page.tsx              [Brief detail + video variants]
 │   ├── server/
 │   │   └── trpc/routers/briefs.ts            [Brief create/list/get]
-ai/prompts/
-└── angles-gen.prompt.ts                      [Prompt + Zod schema — monorepo root, not inside apps/web]
+src/ai/prompts/
+└── angles-gen.prompt.ts                      [Prompt + Zod schema — shared AI layer under src/]
 └── package.json
 ```
 

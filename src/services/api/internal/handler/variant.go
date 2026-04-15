@@ -17,6 +17,19 @@ import (
 	appmiddleware "github.com/qvora/api/internal/middleware"
 )
 
+func isVariantPlaybackReady(status string, muxAssetID *string, muxPlaybackID *string) bool {
+	if !strings.EqualFold(strings.TrimSpace(status), "complete") {
+		return false
+	}
+	if muxAssetID == nil || strings.TrimSpace(*muxAssetID) == "" {
+		return false
+	}
+	if muxPlaybackID == nil || strings.TrimSpace(*muxPlaybackID) == "" {
+		return false
+	}
+	return true
+}
+
 // GetVariantPlaybackURL godoc
 // GET /api/v1/variants/:id/playback-url
 func GetVariantPlaybackURL(c echo.Context) error {
@@ -53,7 +66,7 @@ func GetVariantPlaybackURL(c echo.Context) error {
 		return c.JSON(http.StatusNotFound, map[string]string{"error": "variant_not_found"})
 	}
 
-	if variant.MuxPlaybackID == nil || strings.TrimSpace(*variant.MuxPlaybackID) == "" {
+	if !isVariantPlaybackReady(variant.Status, variant.MuxAssetID, variant.MuxPlaybackID) {
 		return c.JSON(http.StatusConflict, map[string]string{"error": "playback_not_ready"})
 	}
 
@@ -71,6 +84,52 @@ func GetVariantPlaybackURL(c echo.Context) error {
 		"playback_url":  playbackURL,
 		"token":         token,
 		"token_expires": expiresAt.Format(time.RFC3339),
+	})
+}
+
+// UpdateVariantFalRequest godoc
+// PATCH /api/v1/variants/:id/fal-request
+// Internal-only: called by the worker after fal.queue.submit() to store the request ID.
+func UpdateVariantFalRequest(c echo.Context) error {
+	claims := appmiddleware.GetClaims(c)
+	if claims == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	}
+
+	variantID := strings.TrimSpace(c.Param("id"))
+	if variantID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "variant_id_required"})
+	}
+
+	var body struct {
+		FalRequestID string `json:"fal_request_id"`
+	}
+	if err := c.Bind(&body); err != nil || strings.TrimSpace(body.FalRequestID) == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "fal_request_id_required"})
+	}
+
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
+	}
+
+	var variantUUID pgtype.UUID
+	if err := variantUUID.Scan(variantID); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_variant_id"})
+	}
+
+	falReqID := strings.TrimSpace(body.FalRequestID)
+	updated, err := q.UpdateVariantFalRequestID(c.Request().Context(), db.UpdateVariantFalRequestIDParams{
+		ID:           variantUUID,
+		FalRequestID: &falReqID,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "update_failed"})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"variant_id":     variantID,
+		"fal_request_id": updated.FalRequestID,
 	})
 }
 

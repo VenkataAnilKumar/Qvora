@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     workspace_id    UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     product_url     TEXT NOT NULL,
     status          TEXT NOT NULL DEFAULT 'queued'
-                        CHECK (status IN ('queued','scraping','briefing','generating','postprocessing','complete','failed')),
+                        CHECK (status IN ('queued','scraping','generating','postprocessing','complete','failed')),
     model           TEXT NOT NULL DEFAULT 'veo3'
                         CHECK (model IN ('veo3','kling3','runway4','sora2')),
     brief_json      JSONB,

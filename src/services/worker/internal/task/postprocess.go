@@ -9,20 +9,23 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 )
 
 // PostprocessPayload is the input to the Rust postprocessor
 type PostprocessPayload struct {
-	JobID       string `json:"job_id"`      // parent job — used for final status transition
-	VariantID   string `json:"variant_id"`
-	WorkspaceID string `json:"workspace_id"`
-	InputR2Key  string `json:"input_r2_key"`  // raw FAL output in R2
-	OutputR2Key string `json:"output_r2_key"` // final processed output
-	Watermark   bool   `json:"watermark"`
-	AddCaptions bool   `json:"add_captions"`
-	Script      string `json:"script,omitempty"` // for caption burn-in
+	JobID                string `json:"job_id"` // parent job — used for final status transition
+	VariantID            string `json:"variant_id"`
+	WorkspaceID          string `json:"workspace_id"`
+	PostprocessRequestID string `json:"postprocess_request_id,omitempty"`
+	InputR2Key           string `json:"input_r2_key"`   // raw FAL output in R2
+	OutputR2Key          string `json:"output_r2_key"`  // final processed output
+	Watermark            bool   `json:"watermark"`
+	AddCaptions          bool   `json:"add_captions"`
+	Script               string `json:"script,omitempty"` // for caption burn-in
 }
 
 func NewPostprocessTask(payload PostprocessPayload) (*asynq.Task, error) {
@@ -30,7 +33,13 @@ func NewPostprocessTask(payload PostprocessPayload) (*asynq.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal postprocess payload: %w", err)
 	}
-	return asynq.NewTask(TypePostprocess, data, asynq.Queue("critical")), nil
+	return asynq.NewTask(
+		TypePostprocess,
+		data,
+		asynq.Queue("critical"),
+		asynq.MaxRetry(10),
+		asynq.Timeout(20*time.Minute),
+	), nil
 }
 
 // HandlePostprocess calls the Rust Axum postprocessor service
@@ -48,6 +57,8 @@ func HandlePostprocess(ctx context.Context, t *asynq.Task) error {
 	}
 
 	body, err := json.Marshal(map[string]any{
+		"request_id":    postprocessRequestID(payload),
+		"job_id":        payload.JobID,
 		"variant_id":    payload.VariantID,
 		"workspace_id":  payload.WorkspaceID,
 		"input_r2_key":  payload.InputR2Key,
@@ -86,11 +97,15 @@ func HandlePostprocess(ctx context.Context, t *asynq.Task) error {
 		return fmt.Errorf("rust process HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 
-	// Transition: postprocessing → complete
-	// Note: in production this only fires after all variants for the job are done
-	if err := patchJobStatus(payload.JobID, payload.WorkspaceID, "complete"); err != nil {
-		_ = err // non-fatal
-	}
+	// Job completion is finalized by API Mux webhook once all variants are complete.
+	// Keeping status transition there prevents premature completion.
 
 	return nil
+}
+
+func postprocessRequestID(payload PostprocessPayload) string {
+	if strings.TrimSpace(payload.PostprocessRequestID) != "" {
+		return payload.PostprocessRequestID
+	}
+	return uuid.NewString()
 }

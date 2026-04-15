@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::path::PathBuf;
+use std::time::Instant;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use aws_sdk_s3::Client as S3Client;
 use tempfile::NamedTempFile;
 use tracing::info;
@@ -17,12 +16,26 @@ extern crate ffmpeg_next as ffmpeg;
 use ffmpeg::{codec, encoder, filter, format, frame, media, Dictionary, Packet, Rational};
 
 #[cfg(feature = "ffmpeg")]
+use anyhow::Context;
+
+#[cfg(feature = "ffmpeg")]
+use std::collections::HashMap;
+
+#[cfg(feature = "ffmpeg")]
+use std::path::Path;
+
+#[cfg(feature = "ffmpeg")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "ffmpeg")]
 static FFMPEG_INIT: OnceLock<()> = OnceLock::new();
 
 /// Processor config for a single job
 pub struct ProcessorConfig {
+    pub request_id: String,
+    pub job_id: String,
     pub variant_id: String,
-    pub _workspace_id: String,
+    pub workspace_id: String,
     pub watermark: bool,
     pub add_captions: bool,
     pub script: Option<String>,
@@ -39,15 +52,30 @@ impl ProcessorConfig {
         input_r2_key: &str,
         output_r2_key: &str,
     ) -> Result<ProcessResult> {
+        let pipeline_start = Instant::now();
         info!(
+            request_id = %self.request_id,
+            job_id = %self.job_id,
             variant_id = %self.variant_id,
+            workspace_id = %self.workspace_id,
             input_r2_key = %input_r2_key,
             "starting postprocess pipeline"
         );
 
+        let download_start = Instant::now();
         let input_path = self.download_from_r2(input_r2_key).await?;
-        info!(variant_id = %self.variant_id, "downloaded from R2");
+        let download_ms = download_start.elapsed().as_millis() as u64;
+        info!(
+            request_id = %self.request_id,
+            job_id = %self.job_id,
+            variant_id = %self.variant_id,
+            workspace_id = %self.workspace_id,
+            stage = "download",
+            duration_ms = download_ms,
+            "postprocess stage complete"
+        );
 
+        let transcode_start = Instant::now();
         let output_path = self
             .run_transcode(
                 &input_path,
@@ -56,31 +84,71 @@ impl ProcessorConfig {
                 self.script.as_deref(),
             )
             .await?;
-        info!(variant_id = %self.variant_id, "video processing complete");
+        let transcode_ms = transcode_start.elapsed().as_millis() as u64;
+        info!(
+            request_id = %self.request_id,
+            job_id = %self.job_id,
+            variant_id = %self.variant_id,
+            workspace_id = %self.workspace_id,
+            stage = "transcode",
+            duration_ms = transcode_ms,
+            "postprocess stage complete"
+        );
 
+        let upload_start = Instant::now();
         let r2_presigned_url = self.upload_to_r2(&output_path, output_r2_key).await?;
-        info!(variant_id = %self.variant_id, "uploaded to R2");
+        let upload_ms = upload_start.elapsed().as_millis() as u64;
+        info!(
+            request_id = %self.request_id,
+            job_id = %self.job_id,
+            variant_id = %self.variant_id,
+            workspace_id = %self.workspace_id,
+            stage = "upload",
+            duration_ms = upload_ms,
+            "postprocess stage complete"
+        );
 
+        let mux_start = Instant::now();
         let mux_result = self
             .mux_client
             .upload_from_url(&r2_presigned_url, &self.variant_id)
             .await?;
+        let mux_ms = mux_start.elapsed().as_millis() as u64;
         info!(
+            request_id = %self.request_id,
+            job_id = %self.job_id,
             variant_id = %self.variant_id,
+            workspace_id = %self.workspace_id,
             asset_id = %mux_result.asset_id,
             playback_id = %mux_result.playback_id,
-            "uploaded to Mux"
+            stage = "mux",
+            duration_ms = mux_ms,
+            "postprocess stage complete"
         );
 
         let _ = std::fs::remove_file(&input_path);
         let _ = std::fs::remove_file(&output_path);
+
+        let total_ms = pipeline_start.elapsed().as_millis() as u64;
+        info!(
+            request_id = %self.request_id,
+            job_id = %self.job_id,
+            variant_id = %self.variant_id,
+            workspace_id = %self.workspace_id,
+            download_ms = download_ms,
+            transcode_ms = transcode_ms,
+            upload_ms = upload_ms,
+            mux_ms = mux_ms,
+            total_ms = total_ms,
+            "postprocess pipeline complete"
+        );
 
         Ok(ProcessResult {
             variant_id: self.variant_id.clone(),
             output_r2_key: output_r2_key.to_string(),
             mux_asset_id: mux_result.asset_id,
             mux_playable_id: mux_result.playback_id,
-            duration_ms: 0,
+            duration_ms: total_ms,
         })
     }
 

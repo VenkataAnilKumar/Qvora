@@ -5,7 +5,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@qvora/types": ["../../packages/types/src/index.ts"],
-      "@qvora/ui": ["../../packages/ui/src/index.ts"]
+      "@qvora/ui": ["../../packages/ui/src/index.ts"],
+      "@qvora/prompts/*": ["../../ai/prompts/*"]
     },
     "plugins": [
       {
