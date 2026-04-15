@@ -18,7 +18,7 @@
     "@mux/mux-player-react": "^3.5.0",
     "@qvora/types": "*",
     "@qvora/ui": "*",
-    "@sentry/nextjs": "^9.12.0",
+    "@sentry/nextjs": "^10.48.0",
     "@stripe/stripe-js": "^5.8.0",
     "@tanstack/react-query": "^5.74.4",
     "@trpc/client": "^11.1.0",
