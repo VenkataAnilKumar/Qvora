@@ -1,6 +1,6 @@
 # QVORA
 ## Feature Specification
-**Version:** 1.0 | **Date:** April 14, 2026 | **Status:** Draft
+**Version:** 1.1 | **Date:** April 16, 2026 | **Status:** Active (V1 + Post-Launch Roadmap)
 
 ---
 
@@ -41,7 +41,7 @@ This document specifies functional requirements, acceptance criteria, edge cases
 |---|---|---|
 | EXT-01 | Accept HTTP/HTTPS URLs as primary input | P0 |
 | EXT-02 | Support Shopify, WooCommerce, custom landing pages, App Store (iOS), Google Play | P0 |
-| EXT-03 | Render JavaScript before extraction (headless browser — Playwright or Puppeteer) | P0 |
+| EXT-03 | Render JavaScript before extraction (Playwright via Modal worker runtime) | P0 |
 | EXT-04 | Extract fields: product name, category, price, key features (list), proof points, primary CTA, image URLs | P0 |
 | EXT-05 | Extraction latency ≤ 10 seconds for standard pages | P0 |
 | EXT-06 | Fallback to manual text input when URL fails | P0 |

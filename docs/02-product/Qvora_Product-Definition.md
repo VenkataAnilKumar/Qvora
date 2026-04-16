@@ -1,6 +1,6 @@
 # Product Definition Document
 ## Qvora — AI Ad Creative Agent
-**Version:** 2.0 | **Date:** April 14, 2026 | **Status:** Draft for Review
+**Version:** 2.1 | **Date:** April 16, 2026 | **Status:** Active (V1 + Post-Launch Roadmap)
 **Owner:** Product Management | **Classification:** Confidential
 
 > *"Born to Convert."*  — Qvora Brand Tagline
@@ -124,7 +124,7 @@ Q  V  O  R  A
 | Generation engine | **Qvora Studio** | Production layer |
 | Analytics engine | **Qvora Signal** | Performance layer |
 | API product | **Qvora API** | Developer access |
-| Enterprise tier | **Qvora Pro** | Full platform |
+| Post-launch enterprise package | **Qvora Pro** | Full platform |
 
 ### Brand Story
 > Performance marketers are not failing because they lack creativity.
@@ -470,14 +470,13 @@ GENERAL VIDEO ─────────────┼────────
 |---|---|---|---|---|
 | **Starter** | Qvora Starter | Freelance media buyers, small agencies | $99/mo | 20 ads/mo, 1 brand kit, basic formats |
 | **Growth** | Qvora Growth | DTC brands, growing agencies | $149/mo | 100 ads/mo, 3 brand kits, all formats, ad account sync |
-| **Scale** | Qvora Scale | Mid-market teams, agencies | $399/mo | Unlimited ads, 10 brand kits, Qvora Signal, batch gen, team seats |
-| **Enterprise** | Qvora Pro | Large agencies, enterprise brands | Custom | Custom limits, dedicated CSM, Qvora API, SSO, SLA |
+| **Agency** | Qvora Agency | Mid-market teams, agencies | $399/mo | Unlimited ads, 10 brand kits, Qvora Signal (V2), batch gen, team seats |
 
 > **[VALIDATION UPDATE — April 2026]** Starter repriced from $49 → $99/mo based on competitive benchmarking. Arcads (agency-focused) charges $199–$599/mo; Creatify charges $33–$166/mo but targets SMBs without strategy layer. Qvora's strategy-first differentiation positions it above Creatify parity. $99 is the minimum defensible floor for an agency-first ICP without triggering procurement friction. Requires price sensitivity testing before launch — but $49 undersells the intelligence layer and attracts the wrong ICP (solo operators vs. media buyers).
 
 ### Trial & Acquisition Motion
 
-> **[DECISION REQUIRED — Pre-Launch]** Every direct competitor (Creatify, HeyGen, AdCreative.ai) offers a free tier. Qvora starts at $99/mo with no documented trial path. The agency ICP requires internal buy-in before expensing a tool; without a low-friction entry point, top-of-funnel conversion will be limited. Recommended acquisition motion: **7-day full-access trial** (no credit card required; trial account limited to 3 exported ad sets). This creates a real artifact in the first session — Qvora's strongest conversion argument. Trial conversion benchmarks from comparable SaaS tools: 20–35% with a strong activation hook in the first session. Alternative: a credit-based demo (e.g., "First 3 ads free, no card") maps better to a usage-based mental model for the agency ICP.
+> **Decision (locked):** Qvora runs a **14-day full-access trial** (no credit card required), with generation lock on Day 15 and 30-day data retention after expiry. Conversion lifecycle emails run on Day 5 / Day 10 / Day 15.
 
 ---
 
@@ -537,7 +536,7 @@ GENERAL VIDEO ─────────────┼────────
 #### 5.3 Video Generation Engine
 - **Technology:** Composited pipeline using video generation models (Sora, Veo, Kling, or equivalent) + avatar engine + motion graphics layer
 - **Format outputs:** UGC-style (AI avatar or stock talent), product demo (product + voiceover + B-roll), text-motion (copy-focused)
-- **Resolution:** 1080p minimum; 4K for enterprise tier
+- **Resolution:** 1080p minimum; 4K for Agency tier
 - **Latency target:** 60–180 seconds per video at standard quality
 - **Cost model:** Generation cost per video must support profitable delivery at Starter tier pricing
 
@@ -578,10 +577,10 @@ GENERAL VIDEO ─────────────┼────────
 | **Cloud Platform** | AWS or GCP (multi-region for latency) |
 | **Video Generation** | GPU-backed inference (A100 or H100 class); auto-scale on demand spikes |
 | **Storage** | S3-compatible object storage; CDN delivery for exports |
-| **Database** | PostgreSQL (relational); Redis (job queue); vector store (creative metadata search) |
-| **Auth** | OAuth 2.0 + PKCE; SSO via SAML 2.0 (Enterprise tier) |
+| **Database** | PostgreSQL (relational); Redis (cache/rate limit); vector store (creative metadata search) |
+| **Auth** | OAuth 2.0 + PKCE; SSO via SAML 2.0 (post-launch enterprise package) |
 | **Security** | SOC 2 Type II (target within 12 months of launch); GDPR compliant; CCPA compliant |
-| **Uptime** | 99.5% SLA (Growth/Scale); 99.9% SLA (Enterprise) |
+| **Uptime** | 99.5% SLA (Growth/Agency); 99.9% SLA (post-launch enterprise package) |
 | **Video Delivery** | CDN-accelerated export delivery; average export download < 30 seconds |
 
 ---
@@ -634,7 +633,7 @@ Define the data model in V1 for these fields — even if the Meta/TikTok connect
 - **Human Review Queue:** Flag edge cases (sensitive categories: health, finance, legal) for human review before delivery
 - **Rate Limits:** Per-account generation limits to manage infrastructure cost predictability
 - **Audit Logs:** Full generation history per organization; GDPR-compliant deletion on request
-- **API Access:** REST API with API key auth for Enterprise tier (batch generation, programmatic workflows)
+- **API Access:** REST API with API key auth for post-launch enterprise package (batch generation, programmatic workflows)
 
 ---
 

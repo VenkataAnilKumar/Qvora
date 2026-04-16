@@ -1,7 +1,9 @@
 # QVORA
 ## Database Schema
-**Version:** 1.0 | **Date:** April 14, 2026 | **Status:** Draft
+**Version:** 1.1 | **Date:** April 16, 2026 | **Status:** Legacy Reference (V1 draft)
 **Database:** PostgreSQL 16 via Supabase · ORM: sqlc (Go codegen)
+
+> Canonical runtime schema lives in `supabase/migrations/*.sql` (including Phase 0-3 fixes migration 004). This document is conceptual and roadmap-oriented.
 
 ---
 
@@ -50,7 +52,7 @@ CREATE TABLE organizations (
   clerk_org_id    TEXT UNIQUE NOT NULL,           -- Clerk organization ID
   name            TEXT NOT NULL,
   plan            TEXT NOT NULL DEFAULT 'trial'
-                  CHECK (plan IN ('trial','starter','growth','scale','enterprise')),
+                  CHECK (plan IN ('trial','starter','growth','agency')),
   plan_started_at TIMESTAMPTZ,
   trial_ends_at   TIMESTAMPTZ,
   ads_used_month  INTEGER NOT NULL DEFAULT 0,     -- rolling monthly counter

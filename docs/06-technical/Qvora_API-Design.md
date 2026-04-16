@@ -1,9 +1,12 @@
 # Qvora API Design
 
-**Version:** 1.0  
+**Version:** 2.0  
+**Date:** April 16, 2026  
+**Status:** Transitional (V1 runtime active, Phase 8+ microservice target)  
 **Base URL:** `https://api.qvora.com/v1`  
 **Internal BFF:** `http://localhost:3001/trpc` (tRPC, Next.js → Go bridge)  
 **Auth:** Bearer token (Clerk JWT) in `Authorization` header
+**Canonical architecture:** `docs/06-technical/Qvora_Microservice-Architecture.md`
 
 ---
 
@@ -22,7 +25,7 @@
    - [Brands](#brands)
    - [Org / Billing](#org--billing)
    - [Webhooks (FAL.AI Callbacks)](#webhooks-falai-callbacks)
-   - [SSE Streams](#sse-streams)
+  - [Realtime Status Channels](#realtime-status-channels)
 6. [tRPC BFF Procedures](#trpc-bff-procedures)
 7. [Data Models](#data-models)
 
@@ -66,7 +69,7 @@ List responses include pagination:
 ```
 
 ### Idempotency
-POST requests that create resources accept an optional `Idempotency-Key` header. Duplicate requests with the same key within 24 hours return the original response.
+POST requests that create resources require `X-Idempotency-Key` on job/brief creation endpoints. Duplicate requests with the same key return the original response (deduped by workspace + key).
 
 ---
 
@@ -168,7 +171,7 @@ Briefs are the central resource — AI-generated creative strategy documents der
 
 #### `POST /briefs`
 
-Extract URL and generate a creative brief via LangGraph pipeline.
+Extract URL and generate a creative brief via URL extraction + structured LLM pipeline.
 
 **Request:**
 ```json
@@ -190,14 +193,15 @@ Extract URL and generate a creative brief via LangGraph pipeline.
     "id": "brief_01HZ...",
     "status": "processing",
     "job_id": "job_01HZ...",
-    "stream_url": "/v1/stream/briefs/brief_01HZ...",
+    "status_channel": "generation_jobs:job_01HZ...",
     "estimated_seconds": 25
   }
 }
 ```
 
 **Notes:**
-- Brief generation is async. Poll `GET /briefs/{id}` or subscribe to `stream_url` SSE.
+- Brief generation is async. Poll `GET /briefs/{id}` for V1.
+- Realtime status updates move to Supabase Realtime in Phase 8. SSE is a V1 compatibility path.
 - `options.angle_count` defaults to 3, max 5 (Agency plan only).
 
 ---
@@ -386,7 +390,7 @@ Queue a video generation job from a brief angle or direct prompt.
     "id": "asset_01HZ...",
     "job_id": "job_01HZ...",
     "status": "queued",
-    "stream_url": "/v1/stream/assets/asset_01HZ...",
+    "status_channel": "generation_jobs:job_01HZ...",
     "estimated_seconds": 120
   }
 }
@@ -907,6 +911,9 @@ Content-Type: application/json
 3. If COMPLETED: download from FAL.AI URL → upload to R2 → generate thumbnail → update `assets.status = ready` → push SSE event
 4. If FAILED: update `assets.status = failed`, `generation_jobs.status = failed` → push SSE error event
 
+V1 path: status updates may be delivered via SSE compatibility endpoints.
+Phase 8+ target: status updates are delivered via Supabase Realtime channels.
+
 **Response `200 OK`:** `{ "received": true }`
 
 ---
@@ -917,9 +924,9 @@ Receives HeyGen Avatar v3 job completion callbacks. Same signature verification 
 
 ---
 
-### SSE Streams
+### Realtime Status Channels
 
-Server-Sent Events for real-time generation progress. No polling required.
+Primary target architecture is Supabase Realtime (Phase 8+). Legacy SSE endpoints remain documented for V1 compatibility.
 
 ---
 

@@ -1,31 +1,34 @@
 # QVORA
 ## Architecture & Tech Stack
-**Version:** 1.0 | **Date:** April 14, 2026 | **Status:** Proposal
+**Version:** 2.0 | **Date:** April 16, 2026 | **Status:** Active
+**Reference:** `Qvora_Microservice-Architecture.md` (full service catalogue)
 
 ---
 
 ## Architecture Pattern
 
-Qvora runs three distinct workload profiles:
-- **Interactive** — brief generation, edits, real-time UI (seconds)
-- **Async compute** — video generation, rendering, export (minutes, GPU-bound)
-- **Scheduled / event-driven** — performance signal ingestion, learning loop (V2)
+Qvora is a **polyglot microservice system** decomposed by bounded domain context:
 
 ```
 CLIENT (Next.js 15)
-    │  REST + SSE
-API GATEWAY / BFF (tRPC + Next.js API Routes)
-    │  Sync                    │  Enqueue jobs
-CORE API (Go · Echo)      JOB QUEUE (asynq + Redis)
-    │                          │
-    └──────── AI ORCHESTRATION LAYER ──────────
-              Brief Engine      Video Pipeline     Signal (V2)
-              Vercel AI SDK v6   FAL.AI             Temporal
-              GPT-4o / Claude   ElevenLabs
-                                HeyGen Avatar API
+    │  HTTPS
+API GATEWAY (Go · Echo v4)
+    │  gRPC (internal)          │  NATS JetStream (async)
+DOMAIN SERVICES                 MESSAGE BUS
+  identity-svc  (Go)            ingestion.*, brief.*, media.*
+  ingestion-svc (Go)            asset.*, signal.*
+  brief-svc     (Go)
+  asset-svc     (Go)
+  signal-svc    (Go)   V2       TEMPORAL WORKFLOWS
+  scoring-svc   (Python) V2     VideoCreationWorkflow (durable pipeline)
+    │
+MEDIA PIPELINE
+  media-orchestrator (Go + Temporal worker)
+  media-postprocessor (Rust + gRPC)
     │
 DATA LAYER
-    PostgreSQL (Supabase) · Redis (Upstash) · R2 (Cloudflare)
+  PostgreSQL (Supabase + RLS + Realtime)
+  Cloudflare R2 · Mux · Upstash Redis (rate-limit only)
 ```
 
 ---
@@ -38,133 +41,218 @@ DATA LAYER
 | Framework | Next.js 15 (App Router) |
 | UI | shadcn/ui + Radix + Tailwind CSS v4 |
 | State | Zustand + TanStack Query v5 |
-| Real-time | Server-Sent Events (generation progress — see note below) |
+| Real-time | **Supabase Realtime** (job progress — Postgres Changes via WebSocket) |
 | Animation | Framer Motion |
-| Video preview | Mux Player |
+| Video preview | Mux Player (signed HLS) |
 | Forms | React Hook Form + Zod |
+| Type-safe API | tRPC v11 (BFF layer) |
 | Monorepo | Turborepo |
 
-### Backend API
+**Changed from v1.0:** SSE Route Handler replaced by Supabase Realtime. No custom polling loop.
+
+---
+
+### API Gateway
 | Concern | Choice |
 |---|---|
-| BFF | tRPC (end-to-end type safety) |
-| Core API server | **Go · Echo v4** |
-| Job workers | **Go · asynq** (Redis-backed, BullMQ equivalent) |
-| Video post-processor | **Rust · Axum + ffmpeg-sys** (CPU-bound only) |
-| Validation | Zod (frontend) · Go structs + sqlc (backend) |
-| Auth | Clerk (multi-tenant, JWT, SSO) |
-| Rate limiting | Upstash Redis (sliding window, per-user quota — HTTP/REST; safe for serverless) |
-| URL extraction | Go orchestrator → Playwright on Modal (isolated containers) |
+| HTTP server | **Go · Echo v4** |
+| Auth validation | Clerk JWT (org_id, role, plan extracted per request) |
+| Rate limiting | Upstash Redis sliding window (per-org, per-endpoint) |
+| Idempotency | UUID idempotency key on all job creation mutations |
+| Billing events | Stripe Meter API (`meter_event` per billable operation) |
+| Internal routing | gRPC fan-out to domain services |
+
+---
+
+### Domain Services
+| Service | Runtime | Responsibility |
+|---|---|---|
+| `identity-svc` | Go | Auth claims, quota checks, tier enforcement, Stripe metering |
+| `ingestion-svc` | Go + Modal | URL scraping (Playwright), product data extraction, R2 storage |
+| `brief-svc` | Go + Vercel AI SDK | LLM orchestration (GPT-4o + Claude), brief/angles/hooks storage |
+| `asset-svc` | Go | Asset metadata, brand kits, export ZIP assembly, Mux playback URLs |
+| `signal-svc` | Go | Ad platform sync, performance event ingestion, GDPR cleanup (V2) |
+| `scoring-svc` | **Python · FastAPI** | Predictive creative scoring (rules → scikit-learn → PyTorch CNN) (V2) |
+
+---
+
+### Media Pipeline
+| Concern | Choice |
+|---|---|
+| Workflow orchestration | **Temporal.io** (durable execution, saga, retry, visibility) |
+| Video generation | FAL.AI — `fal.queue.submit()` only (never sync) |
+| Provider interface | Model-agnostic Go interface: Veo 3.1 / Kling 3.0 / Runway Gen-4.5 |
+| Avatar lip-sync (default) | **HeyGen Avatar API v3** (`developers.heygen.com`) |
+| Avatar lip-sync (secondary) | **Tavus v2** (fallback, cost-optimized at volume) |
+| TTS / Voiceover | ElevenLabs (`eleven_v3` quality / `eleven_flash_v2_5` preview) |
+| Video post-processing | **Rust · Axum + ffmpeg-next** (gRPC interface, CPU-bound) |
+| Internal comms | **gRPC** (Go → Rust, Go → Go hot paths) |
+
+**Changed from v1.0:**
+- asynq task chains → Temporal workflows (durable, versioned, observable)
+- HTTP between services → gRPC for hot paths
+- HeyGen-only → provider interface (HeyGen default + Tavus secondary)
+
+---
 
 ### AI Orchestration
 | Concern | Choice |
 |---|---|
-| LLM calls | Vercel AI SDK v6 (streaming + structured outputs) |
-| Brief model | GPT-4o (structured output / JSON strict mode) |
-| Regeneration | Claude Sonnet 4.6 (creative quality, lower cost) |
-| Video generation | FAL.AI (gateway to Veo 3.1 / Kling 3.0 / Runway Gen-4.5) |
-| TTS | ElevenLabs API (voice cloning, 175+ languages) |
-| Avatar lip-sync | HeyGen Avatar API v3 |
-| Prompt management | Langfuse (versioning, A/B, cost tracking) |
-| Observability | OpenTelemetry + Langfuse |
+| LLM SDK | Vercel AI SDK v6 (`generateObject` with Zod schemas) |
+| Product extraction | GPT-4o (JSON strict mode — reliable structured output) |
+| Creative generation | Claude Sonnet 4.6 (angles, hooks, regeneration — quality + diversity) |
+| URL extraction | Go orchestrator → Modal Playwright (serverless, pay-per-second) |
+| LLM observability | Langfuse (prompt versions, cost per org, latency per call) |
+| LLM instrumentation | OpenLLMetry (OTel extension — token metrics, gen_ai.* attributes) |
+
+---
+
+### Message Bus
+| Concern | Choice |
+|---|---|
+| Async messaging | **NATS JetStream** (replaces asynq + Railway Redis for queuing) |
+| Delivery guarantee | At-least-once (AckExplicit, MaxDeliver=3) |
+| Dead-letter | NATS DLQ stream (`dlq.*` subjects) |
+| Stream replay | Native NATS JetStream (reprocess failed jobs from any point) |
+| Simple background jobs | NATS consumers (export assembly, signal sync) |
+| Complex multi-step pipelines | Temporal workflows (video creation, provider failover) |
+
+**Changed from v1.0:** Railway Redis (TCP) decommissioned for queuing. NATS is the single message bus.
+
+---
 
 ### Data Layer
 | Concern | Choice |
 |---|---|
-| Primary DB | PostgreSQL via Supabase (RLS for multi-tenancy) |
-| ORM / queries | sqlc (type-safe SQL → Go codegen) |
-| Cache + queue | Upstash Redis (HTTP/REST — caching, session, rate limiting only. **Not used for asynq job queues** — see note below) |
-| File / video storage | Cloudflare R2 (zero egress cost) |
-| CDN | Cloudflare CDN |
-| Video streaming | Mux (adaptive HLS, preview analytics) |
+| Primary DB | PostgreSQL 16 via **Supabase** (RLS + Realtime) |
+| SQL codegen | sqlc (type-safe SQL → Go structs) |
+| Real-time push | **Supabase Realtime** (Postgres Changes → browser WebSocket) |
+| Rate-limit counters | Upstash Redis HTTP (only remaining Redis usage) |
+| URL scrape cache | Upstash Redis HTTP (24h TTL by URL hash) |
+| Object storage | Cloudflare R2 (zero egress cost) |
+| Video streaming | Mux (adaptive HLS, signed playback, in-app analytics) |
 | Embeddings (V2) | pgvector on Supabase |
+
+**Changed from v1.0:** Redis split (Railway TCP + Upstash HTTP) simplified. Railway Redis removed. Upstash retained for rate-limit counters and cache only.
+
+---
 
 ### Infrastructure
 | Concern | Choice |
 |---|---|
-| Frontend + BFF | Vercel |
-| API + workers | Railway (autoscale, Go binaries) |
-| Scraping containers | Modal (serverless, pay-per-second) |
-| Secrets | Doppler |
+| Frontend + BFF | Vercel (edge + serverless functions) |
+| All backend services | **Railway** (api, 6 domain services, Temporal, NATS, postprocessor) |
+| Scraping | Modal (serverless Playwright, pay-per-second) |
+| Workflow engine | Temporal OSS on Railway (or Temporal Cloud for managed) |
+| Message broker | NATS JetStream on Railway (3-node cluster) |
+| Secrets | Doppler (dev / stg / prd environments) |
 | CI/CD | GitHub Actions + Turborepo remote cache |
-| Error tracking | Sentry |
-| Logs + uptime | Better Stack |
+| Error tracking | Sentry (Next.js + Go + Rust + Python) |
+| Logs | Better Stack (structured JSON log drain from Railway) |
+| Traces | Grafana Tempo (OTel collector → Tempo) |
+| Metrics | Prometheus + Grafana dashboards |
 | Product analytics | PostHog |
-| Payments | Stripe (subscription billing + usage metering) |
+| Payments | Stripe (subscriptions + Meter API for usage billing) |
 
 ---
 
-## Go vs Rust Decision
+## Language Allocation
 
 | Service | Language | Reason |
 |---|---|---|
-| API server | Go | I/O-bound, goroutine concurrency, fast iteration |
-| Job workers | Go | Goroutine-per-job, asynq Redis queues |
-| URL extractor orchestrator | Go | Orchestrates Playwright container calls |
-| SSE progress streaming | Next.js Route Handler | `ReadableStream` at `/api/generation/[jobId]/stream` — polls Redis for job status |
-| **Video post-processor** | **Rust** | CPU-bound (watermark, captions, transcode, reframe) |
+| API Gateway | Go | I/O-bound, goroutine concurrency, Echo v4 middleware chain |
+| identity-svc | Go | Simple query/response, fast startup, gRPC server |
+| ingestion-svc | Go | Orchestrates Modal HTTP calls; no CPU work |
+| brief-svc | Go | LLM SDK via Vercel AI SDK (TypeScript) or Go HTTP client |
+| asset-svc | Go | Mux API, R2 upload, ZIP assembly — all I/O |
+| signal-svc | Go | Ad platform HTTP polling; event insertion; I/O-bound |
+| media-orchestrator | Go | Temporal Go SDK; fal.ai HTTP; all I/O-bound |
+| **media-postprocessor** | **Rust** | CPU-bound: ffmpeg transcode, watermark, caption burn |
+| **scoring-svc** | **Python** | ML ecosystem (scikit-learn, PyTorch) — no viable Go alternative |
 
-Go is chosen over Rust for the API and workers because Qvora's backend is **overwhelmingly I/O-bound** — latency is owned by FAL.AI, OpenAI, and HeyGen, not the application server. Rust's borrow checker adds friction during rapid schema iteration with no meaningful throughput benefit on network waits.
-
-Rust is justified **only** for the video post-processing microservice (logo overlay, safe-zone compliance, caption burn, format reframing) where work is genuinely CPU-bound and zero-copy memory matters.
+**Rule (unchanged):** Go for I/O-bound services. Rust for CPU-bound video processing. Python only for ML inference. No language introduced outside these domains.
 
 ---
 
-## Architecture Notes
+## Service Communication Rules
 
-### Redis — Two Separate Instances
-
-`asynq` (the job queue for Go workers) requires a **persistent TCP connection** to Redis. Upstash Redis is HTTP/REST-based (serverless) and does not support persistent TCP connections on standard plans — using Upstash for asynq will fail in production.
-
-**Two Redis instances are required:**
-
-| Instance | Provider | Purpose |
+| Path | Protocol | Reason |
 |---|---|---|
-| **Redis A — Job queue** | Railway Redis container | asynq job queues (persistent TCP, long-lived connections) |
-| **Redis B — App cache** | Upstash Redis | Rate limiting, session cache, brief cache (HTTP/REST, serverless-safe) |
+| Next.js → Go Gateway | HTTPS REST | Public-facing; TLS required |
+| Go Gateway → domain services | gRPC (mTLS) | Type safety; 7× faster than REST; bi-di streaming |
+| media-orchestrator → postprocessor | gRPC streaming | Stream ffmpeg progress back to workflow |
+| Services → NATS | NATS protocol | Async messaging; no direct HTTP between async services |
+| Services → fal.ai, HeyGen, ElevenLabs | HTTPS REST | External APIs — HTTP only |
+| fal.ai → Go webhook handler | HTTPS (inbound) | SHA256 sig verified; < 500ms response |
+| Mux → Go webhook handler | HTTPS (inbound) | Mux signing secret verified |
 
-Both are reflected in the infrastructure cost estimate.
+---
 
-### SSE — Standalone Route Handler, Not tRPC
+## Go vs Rust vs Python Decision Matrix
 
-Generation progress is delivered via **Server-Sent Events (SSE)**. tRPC subscriptions use WebSockets; they cannot be used for SSE. The progress stream must be implemented as a standalone Next.js Route Handler:
+| Service | Language | CPU/IO | Decision |
+|---|---|---|---|
+| API Gateway | Go | I/O | HTTP + gRPC fan-out, no compute |
+| LLM services | Go | I/O | Latency owned by OpenAI/Anthropic |
+| Job orchestration | Go | I/O | Latency owned by fal.ai/HeyGen |
+| **Video postprocessor** | **Rust** | **CPU** | ffmpeg transcode, zero-copy memory, no subprocess |
+| **Creative scoring** | **Python** | **CPU (ML)** | scikit-learn/PyTorch — no viable Go ecosystem |
 
-```
-GET /api/generation/[jobId]/stream
-  → ReadableStream (text/event-stream)
-  → polls asynq job status from Redis A
-  → emits: { status, percent, step } events
-  → client: EventSource('/api/generation/[jobId]/stream')
-```
+---
 
-tRPC handles all standard API calls. The SSE endpoint is the only non-tRPC surface in the BFF.
+## Observability Stack
+
+| Signal | Tool | Source |
+|---|---|---|
+| Traces | Grafana Tempo (via OTel Collector) | All services (Go + Rust + Python + Next.js) |
+| LLM traces | Langfuse | brief-svc (all `generateObject` calls) |
+| Metrics | Prometheus → Grafana | All services (NATS lag, fal concurrency, p95 latency) |
+| Logs | Better Stack | Railway log drain (structured JSON, always include job_id + org_id) |
+| Errors | Sentry | All 4+ services |
+| Product events | PostHog | Next.js client |
+| Workflow visibility | Temporal Web UI | Temporal server |
+| Message bus | NATS Surveyor | NATS cluster |
+
+**Instrumentation libraries:**
+- Go: `go.opentelemetry.io/otel`
+- Rust: `opentelemetry-rust` + `tracing-opentelemetry`
+- Python: `opentelemetry-sdk`
+- LLM: `openllmetry` (all services making LLM calls)
 
 ---
 
 ## V1 → V2 Upgrade Path
 
-| Component | V1 | V2 |
+| Component | V1 (Current) | V2 (Signal Loop) |
 |---|---|---|
-| Workflows | asynq simple queues | Temporal (durable, multi-step) |
-| Feedback loop | None | Meta / TikTok Ads API → Qvora Signal DB |
-| Brief generation | Static LLM prompts | Performance-weighted prompt routing |
-| Model routing | FAL.AI single call | Multi-model routing by cost / quality SLA |
+| Job orchestration | Temporal (video pipeline) | Temporal + NATS (signal ingestion) |
+| Performance signals | Empty `video_performance_events` table | Live ingestion from Meta/TikTok/Google |
+| Brief generation | Static LLM prompts | Performance-weighted few-shot injection |
+| Creative scoring | None | scoring-svc (Python, rule-based → ML) |
+| Model routing | Single call per job | Multi-model routing by cost/quality SLA |
+| Avatar | HeyGen v3 only | HeyGen v3 + Tavus v2 (active) |
 | Search | None | pgvector semantic brief + asset search |
+| Multi-tenancy | Shared schema + RLS | Schema-per-org for Agency+ tier |
 
 ---
 
-## Estimated Infrastructure Cost (MVP · ~500 active users)
+## Estimated Infrastructure Cost (V1 · ~500 active users)
 
 | Service | Est. /mo |
 |---|---|
 | Vercel Pro | $20 |
 | Supabase Pro | $25 |
-| Upstash Redis | $10 |
-| Railway (2× workers) | $40 |
+| Railway (api + 6 services + Temporal + NATS) | $120 |
+| Upstash Redis (rate-limit + cache only) | $10 |
 | Cloudflare R2 + CDN | $15 |
 | Mux | $30–50 |
-| Sentry + Better Stack | $20 |
+| Sentry + Better Stack + Grafana | $30 |
 | PostHog | $0–20 |
-| **Total infra (excl. AI APIs)** | **~$160–180/mo** |
+| **Total infra (excl. AI APIs)** | **~$250–290/mo** |
 
-> FAL.AI video generation is the dominant cost driver. GEN-14 (profitable unit economics at $99/mo Starter) requires credit metering from day one.
+> fal.ai video generation remains the dominant variable cost. Starter tier profitability (GEN-14) requires credit metering from day one via Stripe Meter API.
+
+---
+
+*Architecture Stack v2.0 — Qvora*
+*April 16, 2026 — Confidential*
