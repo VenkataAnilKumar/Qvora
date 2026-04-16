@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/qvora/api/internal/db"
 	"github.com/labstack/echo/v4"
+	"github.com/qvora/api/internal/db"
 	appmiddleware "github.com/qvora/api/internal/middleware"
 )
 
@@ -87,10 +87,17 @@ func SubmitJob(c echo.Context) error {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 
-	job, err := q.CreateJob(c.Request().Context(), db.CreateJobParams{
-		WorkspaceID: workspaceID,
-		ProductUrl:  req.ProductURL,
-		Model:       req.Model,
+	idempotencyKey := strings.TrimSpace(appmiddleware.GetIdempotencyKey(c))
+	var idempotencyKeyPtr *string
+	if idempotencyKey != "" {
+		idempotencyKeyPtr = &idempotencyKey
+	}
+
+	job, err := q.CreateJobIdempotent(c.Request().Context(), db.CreateJobIdempotentParams{
+		WorkspaceID:    workspaceID,
+		ProductUrl:     req.ProductURL,
+		Model:          req.Model,
+		IdempotencyKey: idempotencyKeyPtr,
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_create_failed"})

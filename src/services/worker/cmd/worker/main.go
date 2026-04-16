@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"github.com/qvora/worker/internal/task"
@@ -31,6 +32,13 @@ func main() {
 		log.Fatal("invalid RAILWAY_REDIS_URL", zap.Error(err))
 	}
 
+	rdbOpt, err := redis.ParseURL(redisURL)
+	if err != nil {
+		log.Fatal("invalid RAILWAY_REDIS_URL for go-redis", zap.Error(err))
+	}
+	rdb := redis.NewClient(rdbOpt)
+	defer rdb.Close()
+
 	srv := asynq.NewServer(redisOpt, asynq.Config{
 		Concurrency: 10,
 		Queues: map[string]int{
@@ -50,8 +58,9 @@ func main() {
 
 	// Register task handlers
 	mux.HandleFunc(task.TypeScrape, task.HandleScrape)
-	mux.HandleFunc(task.TypeGenerate, task.HandleGenerate)
+	mux.HandleFunc(task.TypeGenerate, task.HandleGenerate(rdb))
 	mux.HandleFunc(task.TypePostprocess, task.HandlePostprocess)
+	mux.HandleFunc(task.TypeAvatar, task.HandleAvatar(rdb))
 	mux.HandleFunc(task.TypeSignalRecommendationsRefresh, task.HandleSignalRecommendationsRefresh)
 	mux.HandleFunc(task.TypeSignalMetricsSync, task.HandleSignalMetricsSync)
 	mux.HandleFunc(task.TypeSignalGDPRCleanup, task.HandleSignalGDPRCleanup)

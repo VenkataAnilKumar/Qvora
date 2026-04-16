@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import type { GenerationJob, VideoModel } from "@qvora/types";
 import { createTRPCRouter, workspaceProcedure } from "../init";
@@ -70,14 +71,17 @@ export const generationRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      const submitHeaders = buildInternalHeaders({
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        orgRole: ctx.orgRole,
+        headers: ctx.headers,
+      });
+      submitHeaders.set("X-Idempotency-Key", randomUUID());
+
       const response = await fetch(`${GO_API_BASE_URL}/api/v1/jobs`, {
         method: "POST",
-        headers: buildInternalHeaders({
-          userId: ctx.userId,
-          orgId: ctx.orgId,
-          orgRole: ctx.orgRole,
-          headers: ctx.headers,
-        }),
+        headers: submitHeaders,
         body: JSON.stringify({
           product_url: input.productUrl,
           model: input.model,

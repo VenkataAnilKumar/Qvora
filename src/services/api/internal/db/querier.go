@@ -15,19 +15,27 @@ type Querier interface {
 	CreateBriefAngle(ctx context.Context, arg CreateBriefAngleParams) (BriefAngle, error)
 	CreateBriefHook(ctx context.Context, arg CreateBriefHookParams) (BriefHook, error)
 	CreateJob(ctx context.Context, arg CreateJobParams) (Job, error)
+	// ON CONFLICT returns the existing row — client gets the same job_id on retry.
+	CreateJobIdempotent(ctx context.Context, arg CreateJobIdempotentParams) (Job, error)
 	CreateVariant(ctx context.Context, arg CreateVariantParams) (Variant, error)
 	GetBriefByID(ctx context.Context, arg GetBriefByIDParams) (Brief, error)
 	GetJobByID(ctx context.Context, arg GetJobByIDParams) (Job, error)
 	GetVariantForPlayback(ctx context.Context, arg GetVariantForPlaybackParams) (Variant, error)
 	GetWorkspaceByOrgID(ctx context.Context, orgID string) (Workspace, error)
+	GetWorkspaceMonthCost(ctx context.Context, workspaceID pgtype.UUID) (pgtype.Numeric, error)
+	InsertCostEvent(ctx context.Context, arg InsertCostEventParams) error
+	InsertPerfEvent(ctx context.Context, arg InsertPerfEventParams) error
 	ListBriefAngles(ctx context.Context, briefID pgtype.UUID) ([]BriefAngle, error)
 	ListBriefHooks(ctx context.Context, briefID pgtype.UUID) ([]BriefHook, error)
 	ListBriefsByWorkspace(ctx context.Context, arg ListBriefsByWorkspaceParams) ([]Brief, error)
 	ListJobsByWorkspace(ctx context.Context, arg ListJobsByWorkspaceParams) ([]Job, error)
+	ListPerfEventsByVariant(ctx context.Context, variantID pgtype.UUID) ([]ListPerfEventsByVariantRow, error)
 	ListVariantsByJob(ctx context.Context, jobID pgtype.UUID) ([]Variant, error)
 	UpdateBriefStatus(ctx context.Context, arg UpdateBriefStatusParams) (Brief, error)
 	UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams) (Job, error)
+	UpdateVariantAvatarJob(ctx context.Context, arg UpdateVariantAvatarJobParams) error
 	UpdateVariantComplete(ctx context.Context, arg UpdateVariantCompleteParams) (Variant, error)
+	UpdateVariantFalRequestID(ctx context.Context, arg UpdateVariantFalRequestIDParams) (Variant, error)
 	UpdateVariantMuxByID(ctx context.Context, arg UpdateVariantMuxByIDParams) (Variant, error)
 	UpsertWorkspace(ctx context.Context, arg UpsertWorkspaceParams) (Workspace, error)
 }

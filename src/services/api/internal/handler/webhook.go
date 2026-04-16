@@ -162,11 +162,11 @@ func MuxWebhook(c echo.Context) error {
 
 // MuxWebhookPayload represents the webhook event from Mux
 type MuxWebhookPayload struct {
-	Type        string      `json:"type"`        // "video.asset.ready", "video.asset.errored", etc.
-	Data        json.RawMessage `json:"data"`    // Asset data (id, playback_ids, passthrough)
-	CreatedAt   string      `json:"created_at"`  // ISO timestamp
-	EventID     string      `json:"id"`          // Webhook event ID (for dedup)
-	Attemptnum  int         `json:"attemptnum"`  // Retry attempt
+	Type       string          `json:"type"`       // "video.asset.ready", "video.asset.errored", etc.
+	Data       json.RawMessage `json:"data"`       // Asset data (id, playback_ids, passthrough)
+	CreatedAt  string          `json:"created_at"` // ISO timestamp
+	EventID    string          `json:"id"`         // Webhook event ID (for dedup)
+	Attemptnum int             `json:"attemptnum"` // Retry attempt
 }
 
 type muxAssetData struct {
@@ -232,8 +232,12 @@ func FalWebhook(c echo.Context) error {
 	jobID := strings.TrimSpace(findString(metadata, "job_id"))
 	variantID := strings.TrimSpace(findString(metadata, "variant_id"))
 	workspaceID := strings.TrimSpace(findString(metadata, "workspace_id"))
+	rawVideoURL := strings.TrimSpace(findString(metadata, "raw_video_url"))
+	audioURL := strings.TrimSpace(findString(metadata, "audio_url"))
+	useAvatar := findString(metadata, "use_avatar") == "true"
 	inputR2Key := strings.TrimSpace(findString(payload, "input_r2_key"))
 	outputR2Key := strings.TrimSpace(findString(payload, "output_r2_key"))
+	videoPayload := findMap(findMap(payload, "payload"), "video")
 
 	if inputR2Key == "" {
 		inputR2Key = strings.TrimSpace(findString(metadata, "input_r2_key"))
@@ -241,8 +245,20 @@ func FalWebhook(c echo.Context) error {
 	if outputR2Key == "" {
 		outputR2Key = strings.TrimSpace(findString(metadata, "output_r2_key"))
 	}
+	if rawVideoURL == "" {
+		rawVideoURL = strings.TrimSpace(findString(videoPayload, "url"))
+	}
+	if rawVideoURL == "" {
+		rawVideoURL = strings.TrimSpace(findString(payload, "video_url"))
+	}
 
-	if jobID == "" || variantID == "" || workspaceID == "" || inputR2Key == "" || outputR2Key == "" {
+	if jobID == "" || variantID == "" || workspaceID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing_required_fields"})
+	}
+	if !useAvatar && (inputR2Key == "" || outputR2Key == "") {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing_required_fields"})
+	}
+	if useAvatar && (rawVideoURL == "" || audioURL == "") {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing_required_fields"})
 	}
 
@@ -259,30 +275,52 @@ func FalWebhook(c echo.Context) error {
 	client := asynq.NewClient(redisOpt)
 	defer client.Close()
 
-	postprocessPayload := map[string]any{
-		"job_id":                 jobID,
-		"variant_id":             variantID,
-		"workspace_id":           workspaceID,
-		"postprocess_request_id": uuid.NewString(),
-		"input_r2_key":           inputR2Key,
-		"output_r2_key":          outputR2Key,
-		"watermark":              true,
-		"add_captions":           false,
+	var (
+		taskData  []byte
+		taskType  string
+		taskQueue string
+	)
+
+	if useAvatar && rawVideoURL != "" && audioURL != "" {
+		avatarPayload := map[string]any{
+			"job_id":             jobID,
+			"variant_id":         variantID,
+			"workspace_id":       workspaceID,
+			"raw_video_url":      rawVideoURL,
+			"audio_url":          audioURL,
+			"preferred_provider": "heygen_v3",
+		}
+		taskData, err = json.Marshal(avatarPayload)
+		taskType = "job:avatar"
+		taskQueue = "critical"
+	} else {
+		postprocessPayload := map[string]any{
+			"job_id":                 jobID,
+			"variant_id":             variantID,
+			"workspace_id":           workspaceID,
+			"postprocess_request_id": uuid.NewString(),
+			"input_r2_key":           inputR2Key,
+			"output_r2_key":          outputR2Key,
+			"watermark":              true,
+			"add_captions":           false,
+		}
+		taskData, err = json.Marshal(postprocessPayload)
+		taskType = "job:postprocess"
+		taskQueue = "critical"
 	}
 
-	data, err := json.Marshal(postprocessPayload)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "marshal_failed"})
 	}
 
-	task := asynq.NewTask(
-		"job:postprocess",
-		data,
-		asynq.Queue("critical"),
+	enqueuedTask := asynq.NewTask(
+		taskType,
+		taskData,
+		asynq.Queue(taskQueue),
 		asynq.MaxRetry(10),
 		asynq.Timeout(20*time.Minute),
 	)
-	if _, err := client.Enqueue(task); err != nil {
+	if _, err := client.Enqueue(enqueuedTask); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "enqueue_failed"})
 	}
 
@@ -303,6 +341,10 @@ func FalWebhook(c echo.Context) error {
 		zap.String("workspace_id", workspaceID),
 		zap.String("input_r2_key", inputR2Key),
 		zap.String("output_r2_key", outputR2Key),
+		zap.String("raw_video_url", rawVideoURL),
+		zap.String("audio_url", audioURL),
+		zap.Bool("use_avatar", useAvatar),
+		zap.String("task_type", taskType),
 	)
 
 	return c.JSON(http.StatusOK, map[string]bool{"received": true})

@@ -156,6 +156,30 @@ impl ProcessorConfig {
         let mut temp_file = NamedTempFile::new()?;
         let temp_path = temp_file.path().to_path_buf();
 
+        if r2_key.starts_with("http://") || r2_key.starts_with("https://") {
+            let response = reqwest::Client::new()
+                .get(r2_key)
+                .send()
+                .await
+                .map_err(|e| anyhow!("URL download failed: {}", e))?;
+
+            if !response.status().is_success() {
+                return Err(anyhow!(
+                    "URL download returned HTTP {}",
+                    response.status().as_u16()
+                ));
+            }
+
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|e| anyhow!("Failed to read URL response body: {}", e))?;
+
+            temp_file.write_all(&bytes)?;
+            temp_file.flush()?;
+            return Ok(temp_path);
+        }
+
         let body = self
             .s3_client
             .get_object()

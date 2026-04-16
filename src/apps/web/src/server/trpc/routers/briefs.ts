@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { generateObject } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
@@ -250,14 +251,17 @@ export const briefsRouter = createTRPCRouter({
       }
 
       // Step 4: Persist brief + angles + hooks to Go API
+      const createHeaders = buildInternalHeaders({
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        orgRole: ctx.orgRole,
+        headers: ctx.headers,
+      });
+      createHeaders.set("X-Idempotency-Key", randomUUID());
+
       const persistResponse = await fetch(`${GO_API_BASE_URL}/api/v1/briefs`, {
         method: "POST",
-        headers: buildInternalHeaders({
-          userId: ctx.userId,
-          orgId: ctx.orgId,
-          orgRole: ctx.orgRole,
-          headers: ctx.headers,
-        }),
+        headers: createHeaders,
         body: JSON.stringify({
           product_url: input.productUrl,
           template: input.template ?? null,
@@ -638,16 +642,19 @@ export const briefsRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      const batchHeaders = buildInternalHeaders({
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        orgRole: ctx.orgRole,
+        headers: ctx.headers,
+      });
+      batchHeaders.set("X-Idempotency-Key", randomUUID());
+
       const response = await fetch(
         `${GO_API_BASE_URL}/api/v1/briefs/${encodeURIComponent(input.briefId)}/batch-generate`,
         {
           method: "POST",
-          headers: buildInternalHeaders({
-            userId: ctx.userId,
-            orgId: ctx.orgId,
-            orgRole: ctx.orgRole,
-            headers: ctx.headers,
-          }),
+          headers: batchHeaders,
           body: JSON.stringify({
             variants_per_spec: input.variantsPerSpec,
             specs: input.specs.map((spec) => ({

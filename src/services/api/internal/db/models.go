@@ -57,6 +57,29 @@ type BriefHook struct {
 	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
 }
 
+type CostEvent struct {
+	ID           pgtype.UUID        `db:"id" json:"id"`
+	WorkspaceID  pgtype.UUID        `db:"workspace_id" json:"workspace_id"`
+	VariantID    pgtype.UUID        `db:"variant_id" json:"variant_id"`
+	JobID        pgtype.UUID        `db:"job_id" json:"job_id"`
+	Source       string             `db:"source" json:"source"`
+	Model        *string            `db:"model" json:"model"`
+	EstimatedUsd pgtype.Numeric     `db:"estimated_usd" json:"estimated_usd"`
+	ActualUsd    pgtype.Numeric     `db:"actual_usd" json:"actual_usd"`
+	Credits      int32              `db:"credits" json:"credits"`
+	RecordedAt   pgtype.Timestamptz `db:"recorded_at" json:"recorded_at"`
+}
+
+type CreativeScore struct {
+	VariantID      pgtype.UUID `db:"variant_id" json:"variant_id"`
+	WorkspaceID    pgtype.UUID `db:"workspace_id" json:"workspace_id"`
+	EventCount     int64       `db:"event_count" json:"event_count"`
+	AvgTotalMs     float64     `db:"avg_total_ms" json:"avg_total_ms"`
+	MinTotalMs     interface{} `db:"min_total_ms" json:"min_total_ms"`
+	MaxTotalMs     interface{} `db:"max_total_ms" json:"max_total_ms"`
+	LastRecordedAt interface{} `db:"last_recorded_at" json:"last_recorded_at"`
+}
+
 type Export struct {
 	ID          pgtype.UUID        `db:"id" json:"id"`
 	WorkspaceID pgtype.UUID        `db:"workspace_id" json:"workspace_id"`
@@ -68,39 +91,79 @@ type Export struct {
 }
 
 type Job struct {
-	ID          pgtype.UUID        `db:"id" json:"id"`
+	ID             pgtype.UUID        `db:"id" json:"id"`
+	WorkspaceID    pgtype.UUID        `db:"workspace_id" json:"workspace_id"`
+	ProductUrl     string             `db:"product_url" json:"product_url"`
+	Status         string             `db:"status" json:"status"`
+	Model          string             `db:"model" json:"model"`
+	BriefJson      []byte             `db:"brief_json" json:"brief_json"`
+	ErrorMsg       *string            `db:"error_msg" json:"error_msg"`
+	CreatedAt      pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	IdempotencyKey *string            `db:"idempotency_key" json:"idempotency_key"`
+}
+
+type MuxWebhookEvent struct {
+	ID        int64              `db:"id" json:"id"`
+	EventID   string             `db:"event_id" json:"event_id"`
+	EventType string             `db:"event_type" json:"event_type"`
+	Payload   []byte             `db:"payload" json:"payload"`
+	CreatedAt pgtype.Timestamptz `db:"created_at" json:"created_at"`
+}
+
+type PostprocessCallback struct {
+	ID          int64              `db:"id" json:"id"`
 	WorkspaceID pgtype.UUID        `db:"workspace_id" json:"workspace_id"`
-	ProductUrl  string             `db:"product_url" json:"product_url"`
+	VariantID   pgtype.UUID        `db:"variant_id" json:"variant_id"`
+	RequestID   string             `db:"request_id" json:"request_id"`
+	JobID       pgtype.UUID        `db:"job_id" json:"job_id"`
 	Status      string             `db:"status" json:"status"`
-	Model       string             `db:"model" json:"model"`
-	BriefJson   []byte             `db:"brief_json" json:"brief_json"`
-	ErrorMsg    *string            `db:"error_msg" json:"error_msg"`
+	Payload     []byte             `db:"payload" json:"payload"`
 	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
 }
 
 type Variant struct {
-	ID            pgtype.UUID        `db:"id" json:"id"`
-	JobID         pgtype.UUID        `db:"job_id" json:"job_id"`
-	WorkspaceID   pgtype.UUID        `db:"workspace_id" json:"workspace_id"`
-	Angle         string             `db:"angle" json:"angle"`
-	Status        string             `db:"status" json:"status"`
-	FalRequestID  *string            `db:"fal_request_id" json:"fal_request_id"`
-	MuxAssetID    *string            `db:"mux_asset_id" json:"mux_asset_id"`
-	MuxPlaybackID *string            `db:"mux_playback_id" json:"mux_playback_id"`
-	R2Key         *string            `db:"r2_key" json:"r2_key"`
-	DurationSecs  pgtype.Numeric     `db:"duration_secs" json:"duration_secs"`
-	CreatedAt     pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	ID             pgtype.UUID        `db:"id" json:"id"`
+	JobID          pgtype.UUID        `db:"job_id" json:"job_id"`
+	WorkspaceID    pgtype.UUID        `db:"workspace_id" json:"workspace_id"`
+	Angle          string             `db:"angle" json:"angle"`
+	Status         string             `db:"status" json:"status"`
+	FalRequestID   *string            `db:"fal_request_id" json:"fal_request_id"`
+	MuxAssetID     *string            `db:"mux_asset_id" json:"mux_asset_id"`
+	MuxPlaybackID  *string            `db:"mux_playback_id" json:"mux_playback_id"`
+	R2Key          *string            `db:"r2_key" json:"r2_key"`
+	DurationSecs   pgtype.Numeric     `db:"duration_secs" json:"duration_secs"`
+	CreatedAt      pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	AvatarProvider *string            `db:"avatar_provider" json:"avatar_provider"`
+	AvatarJobID    *string            `db:"avatar_job_id" json:"avatar_job_id"`
+}
+
+type VideoPerformanceEvent struct {
+	ID           pgtype.UUID        `db:"id" json:"id"`
+	WorkspaceID  pgtype.UUID        `db:"workspace_id" json:"workspace_id"`
+	VariantID    pgtype.UUID        `db:"variant_id" json:"variant_id"`
+	JobID        pgtype.UUID        `db:"job_id" json:"job_id"`
+	Stage        string             `db:"stage" json:"stage"`
+	DurationMs   int32              `db:"duration_ms" json:"duration_ms"`
+	Model        *string            `db:"model" json:"model"`
+	FalRequestID *string            `db:"fal_request_id" json:"fal_request_id"`
+	ErrorType    *string            `db:"error_type" json:"error_type"`
+	ErrorMsg     *string            `db:"error_msg" json:"error_msg"`
+	RecordedAt   pgtype.Timestamptz `db:"recorded_at" json:"recorded_at"`
 }
 
 type Workspace struct {
-	ID          pgtype.UUID        `db:"id" json:"id"`
-	OrgID       string             `db:"org_id" json:"org_id"`
-	PlanTier    string             `db:"plan_tier" json:"plan_tier"`
-	SubStatus   string             `db:"sub_status" json:"sub_status"`
-	StripeSubID *string            `db:"stripe_sub_id" json:"stripe_sub_id"`
-	TrialEndsAt pgtype.Timestamptz `db:"trial_ends_at" json:"trial_ends_at"`
-	CreatedAt   pgtype.Timestamptz `db:"created_at" json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	ID                  pgtype.UUID        `db:"id" json:"id"`
+	OrgID               string             `db:"org_id" json:"org_id"`
+	PlanTier            string             `db:"plan_tier" json:"plan_tier"`
+	SubStatus           string             `db:"sub_status" json:"sub_status"`
+	StripeSubID         *string            `db:"stripe_sub_id" json:"stripe_sub_id"`
+	TrialEndsAt         pgtype.Timestamptz `db:"trial_ends_at" json:"trial_ends_at"`
+	CreatedAt           pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	MonthlyCostLimitUsd pgtype.Numeric     `db:"monthly_cost_limit_usd" json:"monthly_cost_limit_usd"`
+	CurrentMonthCostUsd pgtype.Numeric     `db:"current_month_cost_usd" json:"current_month_cost_usd"`
+	CostResetAt         pgtype.Timestamptz `db:"cost_reset_at" json:"cost_reset_at"`
 }

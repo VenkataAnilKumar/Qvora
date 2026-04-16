@@ -61,7 +61,7 @@ func main() {
 
 	// Jobs
 	jobs := v1.Group("/jobs", appmiddleware.RequireWorkspace())
-	jobs.POST("", handler.SubmitJob)
+	jobs.POST("", handler.SubmitJob, appmiddleware.Idempotency(true))
 	jobs.GET("", handler.ListJobs)
 	jobs.GET("/:id", handler.GetJob)
 	jobs.PATCH("/:id/status", handler.UpdateJobStatus)
@@ -69,7 +69,7 @@ func main() {
 
 	// Briefs
 	briefs := v1.Group("/briefs", appmiddleware.RequireWorkspace())
-	briefs.POST("", handler.CreateBrief)
+	briefs.POST("", handler.CreateBrief, appmiddleware.Idempotency(true))
 	briefs.GET("", handler.ListBriefs)
 	briefs.GET("/:id", handler.GetBrief)
 	briefs.PUT("/:id/content", handler.UpdateBriefContent)
@@ -114,11 +114,14 @@ func main() {
 	v1.POST("/internal/signal/recommendations/refresh-all", handler.RefreshAllSignalRecommendations)
 	v1.POST("/internal/postprocess/callback", handler.HandlePostprocessCallback)
 	v1.POST("/internal/jobs/reconcile-stuck", handler.ReconcileStuckJobs)
+	v1.POST("/internal/perf-events", handler.HandleCreatePerfEvent)
+	v1.POST("/internal/cost-events", handler.HandleCreateCostEvent)
 
 	// Variants
 	variants := v1.Group("/variants", appmiddleware.RequireWorkspace())
 	variants.GET("/:id/playback-url", handler.GetVariantPlaybackURL)
 	variants.PATCH("/:id/fal-request", handler.UpdateVariantFalRequest)
+	variants.PATCH("/:id/avatar-job", handler.HandlePatchAvatarJob)
 
 	// Webhooks (no auth middleware — verified by signature)
 	webhooks := e.Group("/webhooks")

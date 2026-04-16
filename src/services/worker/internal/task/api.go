@@ -246,3 +246,71 @@ func runJobStuckReconciliation(ctx context.Context, maxAgeMinutes int) error {
 	}
 	return nil
 }
+
+func patchJSON(ctx context.Context, url, workspaceID, internalKey string, body []byte) error {
+	if internalKey == "" {
+		return fmt.Errorf("INTERNAL_API_KEY not set")
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPatch,
+		url,
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return fmt.Errorf("build patch request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "worker")
+	req.Header.Set("X-Org-Id", workspaceID)
+	req.Header.Set("X-Org-Role", "worker")
+	req.Header.Set("X-Internal-Api-Key", internalKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("patch request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("patch request returned HTTP %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func postJSON(ctx context.Context, url, workspaceID, internalKey string, body []byte) error {
+	if internalKey == "" {
+		return fmt.Errorf("INTERNAL_API_KEY not set")
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		url,
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return fmt.Errorf("build post request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "worker")
+	req.Header.Set("X-Org-Id", workspaceID)
+	req.Header.Set("X-Org-Role", "worker")
+	req.Header.Set("X-Internal-Api-Key", internalKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("post request failed: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("post request returned HTTP %d", resp.StatusCode)
+	}
+
+	return nil
+}

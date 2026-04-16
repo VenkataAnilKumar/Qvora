@@ -111,7 +111,7 @@ func (q *Queries) CreateBriefHook(ctx context.Context, arg CreateBriefHookParams
 const createJob = `-- name: CreateJob :one
 INSERT INTO jobs (workspace_id, product_url, model)
 VALUES ($1, $2, $3)
-RETURNING id, workspace_id, product_url, status, model, brief_json, error_msg, created_at, updated_at
+RETURNING id, workspace_id, product_url, status, model, brief_json, error_msg, created_at, updated_at, idempotency_key
 `
 
 type CreateJobParams struct {
@@ -133,6 +133,7 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, erro
 		&i.ErrorMsg,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -140,7 +141,7 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (Job, erro
 const createVariant = `-- name: CreateVariant :one
 INSERT INTO variants (job_id, workspace_id, angle)
 VALUES ($1, $2, $3)
-RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at
+RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at, avatar_provider, avatar_job_id
 `
 
 type CreateVariantParams struct {
@@ -165,6 +166,8 @@ func (q *Queries) CreateVariant(ctx context.Context, arg CreateVariantParams) (V
 		&i.DurationSecs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvatarProvider,
+		&i.AvatarJobID,
 	)
 	return i, err
 }
@@ -197,7 +200,7 @@ func (q *Queries) GetBriefByID(ctx context.Context, arg GetBriefByIDParams) (Bri
 }
 
 const getJobByID = `-- name: GetJobByID :one
-SELECT id, workspace_id, product_url, status, model, brief_json, error_msg, created_at, updated_at FROM jobs
+SELECT id, workspace_id, product_url, status, model, brief_json, error_msg, created_at, updated_at, idempotency_key FROM jobs
 WHERE id = $1 AND workspace_id = $2
 LIMIT 1
 `
@@ -220,12 +223,13 @@ func (q *Queries) GetJobByID(ctx context.Context, arg GetJobByIDParams) (Job, er
 		&i.ErrorMsg,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
 
 const getVariantForPlayback = `-- name: GetVariantForPlayback :one
-SELECT id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at FROM variants
+SELECT id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at, avatar_provider, avatar_job_id FROM variants
 WHERE id = $1 AND workspace_id = $2
 LIMIT 1
 `
@@ -251,12 +255,14 @@ func (q *Queries) GetVariantForPlayback(ctx context.Context, arg GetVariantForPl
 		&i.DurationSecs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvatarProvider,
+		&i.AvatarJobID,
 	)
 	return i, err
 }
 
 const getWorkspaceByOrgID = `-- name: GetWorkspaceByOrgID :one
-SELECT id, org_id, plan_tier, sub_status, stripe_sub_id, trial_ends_at, created_at, updated_at FROM workspaces
+SELECT id, org_id, plan_tier, sub_status, stripe_sub_id, trial_ends_at, created_at, updated_at, monthly_cost_limit_usd, current_month_cost_usd, cost_reset_at FROM workspaces
 WHERE org_id = $1
 LIMIT 1
 `
@@ -273,6 +279,9 @@ func (q *Queries) GetWorkspaceByOrgID(ctx context.Context, orgID string) (Worksp
 		&i.TrialEndsAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MonthlyCostLimitUsd,
+		&i.CurrentMonthCostUsd,
+		&i.CostResetAt,
 	)
 	return i, err
 }
@@ -386,7 +395,7 @@ func (q *Queries) ListBriefsByWorkspace(ctx context.Context, arg ListBriefsByWor
 }
 
 const listJobsByWorkspace = `-- name: ListJobsByWorkspace :many
-SELECT id, workspace_id, product_url, status, model, brief_json, error_msg, created_at, updated_at FROM jobs
+SELECT id, workspace_id, product_url, status, model, brief_json, error_msg, created_at, updated_at, idempotency_key FROM jobs
 WHERE workspace_id = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
@@ -417,6 +426,7 @@ func (q *Queries) ListJobsByWorkspace(ctx context.Context, arg ListJobsByWorkspa
 			&i.ErrorMsg,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.IdempotencyKey,
 		); err != nil {
 			return nil, err
 		}
@@ -429,7 +439,7 @@ func (q *Queries) ListJobsByWorkspace(ctx context.Context, arg ListJobsByWorkspa
 }
 
 const listVariantsByJob = `-- name: ListVariantsByJob :many
-SELECT id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at FROM variants
+SELECT id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at, avatar_provider, avatar_job_id FROM variants
 WHERE job_id = $1
 ORDER BY created_at ASC
 `
@@ -456,6 +466,8 @@ func (q *Queries) ListVariantsByJob(ctx context.Context, jobID pgtype.UUID) ([]V
 			&i.DurationSecs,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AvatarProvider,
+			&i.AvatarJobID,
 		); err != nil {
 			return nil, err
 		}
@@ -499,7 +511,7 @@ const updateJobStatus = `-- name: UpdateJobStatus :one
 UPDATE jobs
 SET status = $2, updated_at = NOW()
 WHERE id = $1
-RETURNING id, workspace_id, product_url, status, model, brief_json, error_msg, created_at, updated_at
+RETURNING id, workspace_id, product_url, status, model, brief_json, error_msg, created_at, updated_at, idempotency_key
 `
 
 type UpdateJobStatusParams struct {
@@ -520,6 +532,7 @@ func (q *Queries) UpdateJobStatus(ctx context.Context, arg UpdateJobStatusParams
 		&i.ErrorMsg,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.IdempotencyKey,
 	)
 	return i, err
 }
@@ -533,7 +546,7 @@ SET status = 'complete',
     duration_secs   = $5,
     updated_at      = NOW()
 WHERE id = $1
-RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at
+RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at, avatar_provider, avatar_job_id
 `
 
 type UpdateVariantCompleteParams struct {
@@ -566,6 +579,8 @@ func (q *Queries) UpdateVariantComplete(ctx context.Context, arg UpdateVariantCo
 		&i.DurationSecs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvatarProvider,
+		&i.AvatarJobID,
 	)
 	return i, err
 }
@@ -575,7 +590,7 @@ UPDATE variants
 SET fal_request_id = $2,
     updated_at     = NOW()
 WHERE id = $1
-RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at
+RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at, avatar_provider, avatar_job_id
 `
 
 type UpdateVariantFalRequestIDParams struct {
@@ -599,6 +614,8 @@ func (q *Queries) UpdateVariantFalRequestID(ctx context.Context, arg UpdateVaria
 		&i.DurationSecs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvatarProvider,
+		&i.AvatarJobID,
 	)
 	return i, err
 }
@@ -610,7 +627,7 @@ SET mux_asset_id    = $2,
     status          = 'complete',
     updated_at      = NOW()
 WHERE id = $1
-RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at
+RETURNING id, job_id, workspace_id, angle, status, fal_request_id, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at, avatar_provider, avatar_job_id
 `
 
 type UpdateVariantMuxByIDParams struct {
@@ -635,6 +652,8 @@ func (q *Queries) UpdateVariantMuxByID(ctx context.Context, arg UpdateVariantMux
 		&i.DurationSecs,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvatarProvider,
+		&i.AvatarJobID,
 	)
 	return i, err
 }
@@ -647,7 +666,7 @@ ON CONFLICT (org_id) DO UPDATE SET
     sub_status    = EXCLUDED.sub_status,
     trial_ends_at = EXCLUDED.trial_ends_at,
     updated_at    = NOW()
-RETURNING id, org_id, plan_tier, sub_status, stripe_sub_id, trial_ends_at, created_at, updated_at
+RETURNING id, org_id, plan_tier, sub_status, stripe_sub_id, trial_ends_at, created_at, updated_at, monthly_cost_limit_usd, current_month_cost_usd, cost_reset_at
 `
 
 type UpsertWorkspaceParams struct {
@@ -674,6 +693,9 @@ func (q *Queries) UpsertWorkspace(ctx context.Context, arg UpsertWorkspaceParams
 		&i.TrialEndsAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.MonthlyCostLimitUsd,
+		&i.CurrentMonthCostUsd,
+		&i.CostResetAt,
 	)
 	return i, err
 }
