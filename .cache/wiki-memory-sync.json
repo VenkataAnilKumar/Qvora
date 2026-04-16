@@ -1,0 +1,74 @@
+{
+  "generatedAt": "2026-04-15T22:31:33-04:00",
+  "repo": "V:\\AI Engineer\\Agentic AI and Autonmous AI\\Qvora",
+  "wiki": {
+    "indexPath": ".\\wiki\\index.md",
+    "checklistPath": ".\\wiki\\architecture\\implementation-checklist.md",
+    "lastUpdated": {
+      "date": "2026-04-15",
+      "note": "Full ingest — all docs/ sources"
+    },
+    "pendingIngest": [
+      {
+        "source": "`docs/05-design/Qvora_Wireframes.md`",
+        "notes": "Wireframes reference; ingest when working on screen-by-screen layouts"
+      }
+    ],
+    "pendingCount": 1
+  },
+  "phases": [
+    {
+      "phase": 0,
+      "name": "Foundation & Infrastructure",
+      "duration": "Week 1",
+      "status": "✅ Complete"
+    },
+    {
+      "phase": 1,
+      "name": "Core Data Layer",
+      "duration": "Week 2",
+      "status": "✅ Complete"
+    },
+    {
+      "phase": 2,
+      "name": "URL Ingestion & Brief Engine",
+      "duration": "Weeks 3–4",
+      "status": "✅ Complete"
+    },
+    {
+      "phase": 3,
+      "name": "Video Generation Pipeline",
+      "duration": "Weeks 5–7",
+      "status": "✅ Complete"
+    },
+    {
+      "phase": 4,
+      "name": "Brand Kit & Export",
+      "duration": "Week 8",
+      "status": "⚠️ Partial"
+    },
+    {
+      "phase": 5,
+      "name": "Asset Library & Team",
+      "duration": "Week 9",
+      "status": "❓ Not Validated"
+    },
+    {
+      "phase": 6,
+      "name": "Platform, Billing & Trial",
+      "duration": "Week 10",
+      "status": "❓ Not Validated"
+    },
+    {
+      "phase": 7,
+      "name": "Polish, Observability & Launch",
+      "duration": "Week 11",
+      "status": "❓ Not Validated"
+    }
+  ],
+  "syncHints": [
+    "Wiki is canonical for facts; memory is execution accelerator.",
+    "After wiki ingest/update, refresh repo memory from this snapshot.",
+    "Keep user memory for stable preferences and non-negotiables only."
+  ]
+}

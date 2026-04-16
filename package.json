@@ -10,6 +10,9 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "validate:phase1-phase2": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/validate-phase1-phase2.ps1",
+    "sync:wiki-memory": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/sync-wiki-memory.ps1",
+    "sync:wiki-memory:stage": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/stage-wiki-memory-sync.ps1",
+    "sync:wiki-memory:all": "npm run sync:wiki-memory && npm run sync:wiki-memory:stage",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "clean": "turbo run clean && rm -rf node_modules"
