@@ -1,16 +1,12 @@
 package task
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -33,15 +29,7 @@ type GeneratePayload struct {
 	AvatarProvider    string `json:"avatar_provider,omitempty"`
 }
 
-// modelEndpoints maps Qvora model names → FAL.AI endpoint paths.
-var modelEndpoints = map[string]string{
-	"veo3":    "fal-ai/veo3",
-	"kling3":  "fal-ai/kling-video/v3/standard/text-to-video",
-	"runway4": "fal-ai/runway-gen4/turbo/text-to-video",
-	"sora2":   "fal-ai/sora",
-}
-
-// modelDisplayNames maps internal keys → human-readable cost-tracking names.
+// modelDisplayNames maps internal model keys → human-readable cost-tracking names.
 var modelDisplayNames = map[string]string{
 	"veo3":    "veo-3.1",
 	"kling3":  "kling-3.0",
@@ -61,16 +49,16 @@ func NewGenerateTask(payload GeneratePayload) (*asynq.Task, error) {
 	), nil
 }
 
-// HandleGenerate submits an async video generation job to FAL.AI.
+// HandleGenerate submits an async video generation job via the given VideoProvider.
 //
-// Guards added vs original:
+// Guards:
 //   - Cost circuit breaker: blocks if workspace hourly spend limit hit
 //   - FAL concurrency semaphore: max 2 concurrent per workspace (FAL hard limit)
 //   - Performance event: records dispatch latency to video_performance_events
 //   - Cost event: records estimated USD cost for billing attribution
 //
-// Always uses fal.queue.submit() — NEVER fal.subscribe() (blocks under load).
-func HandleGenerate(rdb *redis.Client) asynq.HandlerFunc {
+// Always uses async queue submission — NEVER blocking subscribe.
+func HandleGenerate(rdb *redis.Client, prov VideoProvider) asynq.HandlerFunc {
 	sem := NewFalSemaphore(rdb)
 	cb := NewCostCircuitBreaker(rdb)
 
@@ -87,21 +75,13 @@ func HandleGenerate(rdb *redis.Client) asynq.HandlerFunc {
 			"model", p.Model,
 		)
 
-		falKey := os.Getenv("FAL_KEY")
-		if falKey == "" {
-			_ = patchJobStatus(p.JobID, p.WorkspaceID, "failed")
-			return fmt.Errorf("FAL_KEY not set")
-		}
-
-		endpoint, ok := modelEndpoints[p.Model]
-		if !ok {
-			return fmt.Errorf("unknown model: %s", p.Model)
-		}
-
 		// ----------------------------------------------------------------
 		// 1. Cost circuit breaker — check before acquiring semaphore
 		// ----------------------------------------------------------------
 		modelName := modelDisplayNames[p.Model]
+		if modelName == "" {
+			modelName = p.Model // fallback for unknown display name
+		}
 		if err := cb.CheckAndIncrement(ctx, p.WorkspaceID, p.PlanTier, modelName); err != nil {
 			log.Warn("cost circuit breaker open", "err", err)
 			_ = patchJobStatus(p.JobID, p.WorkspaceID, "failed")
@@ -130,10 +110,21 @@ func HandleGenerate(rdb *redis.Client) asynq.HandlerFunc {
 		log.Info("fal semaphore acquired", "slot", slotKey)
 
 		// ----------------------------------------------------------------
-		// 3. Submit to FAL.AI async queue
+		// 3. Submit to video provider async queue
 		// ----------------------------------------------------------------
 		start := time.Now()
-		falRequestID, err := submitFalQueue(ctx, falKey, endpoint, p)
+		result, err := prov.Submit(ctx, VideoRequest{
+			JobID:          p.JobID,
+			VariantID:      p.VariantID,
+			WorkspaceID:    p.WorkspaceID,
+			PlanTier:       p.PlanTier,
+			Angle:          p.Angle,
+			Script:         p.Script,
+			Model:          p.Model,
+			UseAvatar:      p.UseAvatar,
+			AudioURL:       p.AudioURL,
+			AvatarProvider: p.AvatarProvider,
+		})
 		dispatchMS := int(time.Since(start).Milliseconds())
 
 		if err != nil {
@@ -145,13 +136,14 @@ func HandleGenerate(rdb *redis.Client) asynq.HandlerFunc {
 				Stage:       "fal_queue",
 				DurationMS:  dispatchMS,
 				Model:       modelName,
-				ErrorType:   "fal_submit",
+				ErrorType:   "provider_submit",
 				ErrorMsg:    err.Error(),
 			})
-			return fmt.Errorf("fal queue submit: %w", err)
+			return fmt.Errorf("video provider submit: %w", err)
 		}
+		falRequestID := result.ProviderJobID
 
-		log.Info("fal job submitted", "fal_request_id", falRequestID, "dispatch_ms", dispatchMS)
+		log.Info("video job submitted", "provider", result.Provider, "request_id", falRequestID, "dispatch_ms", dispatchMS)
 
 		// ----------------------------------------------------------------
 		// 4. Store FAL request ID on variant (webhook routing)
@@ -184,85 +176,6 @@ func HandleGenerate(rdb *redis.Client) asynq.HandlerFunc {
 
 		return nil
 	}
-}
-
-// =============================================================================
-// FAL.AI queue submission
-// =============================================================================
-
-type falQueueSubmitResponse struct {
-	RequestID string `json:"request_id"`
-	StatusURL string `json:"status_url"`
-	Error     string `json:"error"`
-}
-
-func submitFalQueue(ctx context.Context, falKey, endpoint string, p GeneratePayload) (string, error) {
-	apiBaseURL := strings.TrimSpace(os.Getenv("API_BASE_URL"))
-	webhookURL := strings.TrimSpace(os.Getenv("FAL_WEBHOOK_URL"))
-	if webhookURL == "" && apiBaseURL != "" {
-		webhookURL = strings.TrimRight(apiBaseURL, "/") + "/webhooks/fal"
-	}
-
-	body, err := json.Marshal(map[string]any{
-		"prompt": p.Script,
-		"input": map[string]any{
-			"prompt":           p.Script,
-			"aspect_ratio":     "9:16",
-			"duration_seconds": 15,
-		},
-		"webhook_url": webhookURL,
-		"metadata": map[string]any{
-			"job_id":       p.JobID,
-			"variant_id":   p.VariantID,
-			"workspace_id": p.WorkspaceID,
-			"use_avatar":   p.UseAvatar,
-			"audio_url":    p.AudioURL,
-			"avatar_provider": func() string {
-				if p.AvatarProvider != "" {
-					return p.AvatarProvider
-				}
-				return "heygen_v3"
-			}(),
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("marshal fal request: %w", err)
-	}
-
-	queueURL := "https://queue.fal.run/" + strings.TrimPrefix(endpoint, "/")
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, queueURL, bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("build fal request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Key "+falKey)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("submit fal request: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read fal response: %w", err)
-	}
-	if resp.StatusCode >= http.StatusBadRequest {
-		return "", fmt.Errorf("fal HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
-	}
-
-	var out falQueueSubmitResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", fmt.Errorf("parse fal response: %w", err)
-	}
-	if out.Error != "" {
-		return "", fmt.Errorf("fal API error: %s", out.Error)
-	}
-	if out.RequestID == "" {
-		return "", fmt.Errorf("fal response missing request_id")
-	}
-
-	return out.RequestID, nil
 }
 
 // getEnv is a helper used across this package.

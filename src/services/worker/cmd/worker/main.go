@@ -58,7 +58,7 @@ func main() {
 
 	// Register task handlers
 	mux.HandleFunc(task.TypeScrape, task.HandleScrape)
-	mux.HandleFunc(task.TypeGenerate, task.HandleGenerate(rdb))
+	mux.HandleFunc(task.TypeGenerate, task.HandleGenerate(rdb, task.NewFalProvider()))
 	mux.HandleFunc(task.TypePostprocess, task.HandlePostprocess)
 	mux.HandleFunc(task.TypeAvatar, task.HandleAvatar(rdb))
 	mux.HandleFunc(task.TypeSignalRecommendationsRefresh, task.HandleSignalRecommendationsRefresh)
