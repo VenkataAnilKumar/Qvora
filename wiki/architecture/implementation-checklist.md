@@ -73,11 +73,10 @@ updated: 2026-04-16
 - GPT-4o `generateObject` → Zod-validated structured product JSON
 - Claude Sonnet 4.6 angles + hooks generation
 - Brief stored to DB with fail-fast on angle/hook insert errors (**BRIEF-08 resolved**)
+- Per-angle + per-hook regenerate implemented in tRPC brief router (**BRIEF-09 resolved**)
 - `ai/prompts/angles-gen.prompt.ts` for prompt management
 - tRPC: `briefs.create`, `briefs.byId`, `briefs.list`
 - Frontend: URL input → brief preview with angles + hooks + inline edit
-
-> **Note (BRIEF-09):** Per-angle/per-hook regenerate was referenced as "in progress" in Apr 15 snapshot. Check current state.
 
 ---
 
@@ -142,7 +141,6 @@ updated: 2026-04-16
 ---
 
 ## Open Questions
-- [ ] BRIEF-09 (per-angle regenerate) — completed or still in progress?
 - [ ] Phase 4 export ZIP — is `generation:export` worker task implemented?
 - [ ] HeyGen V2V lip-sync — which phase? Not explicitly listed in checklist.
 
