@@ -1,8 +1,10 @@
 # Qvora — Repository Structure
 
 > **Decision:** Turborepo Monorepo  
-> **Status:** Locked  
+> **Status:** Transitional (V1 layout active, service decomposition planned in Phase 8+)  
 > **Last validated:** April 2026 (against Turborepo 2.x, Next.js 15, Go 1.24, Rust Axum 0.7+)
+
+> Canonical target architecture is defined in `Qvora_Microservice-Architecture.md`; rollout sequencing is defined in `../07-implementation/Qvora_Implementation-Phases.md`.
 
 ---
 

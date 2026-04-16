@@ -5,6 +5,8 @@
 **Methodology:** 2-week sprints, async-first team  
 **Definition of Done:** Feature merged to `main`, passing tests, deployed to staging, acceptance criteria verified
 
+> **Status:** Legacy V1 sprint artifact. Canonical execution roadmap is maintained in `../07-implementation/Qvora_Implementation-Phases.md` and `../07-implementation/IMPLEMENTATION_CHECKLIST.md`.
+
 ---
 
 ## Table of Contents

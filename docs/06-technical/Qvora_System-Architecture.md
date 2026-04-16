@@ -1,8 +1,10 @@
 # QVORA
 ## System Architecture
-**Version:** 2.0 | **Date:** April 16, 2026 | **Status:** Active
+**Version:** 2.1 | **Date:** April 16, 2026 | **Status:** Transitional (V1 Runtime Active, Phase 8+ Target)
 **Reference:** `Qvora_Microservice-Architecture.md` (canonical service catalogue)
 **Stack:** `Qvora_Architecture-Stack.md`
+
+> Implementation order and rollout status are tracked in `docs/07-implementation/Qvora_Implementation-Phases.md`.
 
 ---
 

@@ -1,14 +1,14 @@
 # QVORA
 ## Microservice Architecture
-**Version:** 2.0 | **Date:** April 16, 2026 | **Status:** Active — Supersedes v1.0 locked decisions
+**Version:** 2.1 | **Date:** April 16, 2026 | **Status:** Target (Phase 8+ Post-Launch Migration)
 
 ---
 
 ## Overview
 
-Qvora is decomposed into **8 domain services** across 3 runtimes (Go, Rust, Python), orchestrated by NATS JetStream for async messaging and Temporal for durable video pipeline workflows.
+Qvora target architecture is decomposed into **8 domain services** across 3 runtimes (Go, Rust, Python), orchestrated by NATS JetStream for async messaging and Temporal for durable video pipeline workflows.
 
-This document is the canonical reference for all service boundaries, communication protocols, data ownership, and deployment topology. All previous "locked decisions" from v1.0 are superseded where noted.
+This document is the canonical reference for service boundaries, communication protocols, data ownership, and deployment topology for the Phase 8+ migration roadmap.
 
 ---
 
