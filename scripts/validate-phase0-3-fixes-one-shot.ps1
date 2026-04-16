@@ -12,6 +12,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$passCount = 0
+$failCount = 0
+$skipCount = 0
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $reportPath = Join-Path $repoRoot ("docs/07-implementation/PHASE0_3_FIXES_ONE_SHOT_" + (Get-Date -Format "yyyy-MM-dd_HHmmss") + ".md")
 
@@ -40,11 +44,45 @@ function Invoke-Check {
     & $Action
     Write-Host "PASS [$Id] $Name" -ForegroundColor Green
     Add-ReportLine "- $Id | PASS | $Name"
+    $script:passCount++
   }
   catch {
-    Write-Host "FAIL [$Id] $Name : $($_.Exception.Message)" -ForegroundColor Red
-    Add-ReportLine "- $Id | FAIL | $Name | $($_.Exception.Message)"
+    $message = $_.Exception.Message
+    if ($message.StartsWith("SKIP:")) {
+      $skipReason = $message.Substring(5).Trim()
+      Write-Host "SKIP [$Id] $Name : $skipReason" -ForegroundColor DarkYellow
+      Add-ReportLine "- $Id | SKIP | $Name | $skipReason"
+      $script:skipCount++
+      return
+    }
+
+    Write-Host "FAIL [$Id] $Name : $message" -ForegroundColor Red
+    Add-ReportLine "- $Id | FAIL | $Name | $message"
+    $script:failCount++
   }
+}
+
+function Skip-Check {
+  param([string]$Reason)
+  throw "SKIP: $Reason"
+}
+
+function Resolve-Input {
+  param(
+    [string]$Value,
+    [string]$EnvName
+  )
+
+  if (-not [string]::IsNullOrWhiteSpace($Value)) {
+    return $Value
+  }
+
+  $fromEnv = [System.Environment]::GetEnvironmentVariable($EnvName)
+  if (-not [string]::IsNullOrWhiteSpace($fromEnv)) {
+    return $fromEnv
+  }
+
+  return ""
 }
 
 function Assert-Command {
@@ -109,7 +147,7 @@ Invoke-Check -Id "PRE-2" -Name "Required env keys declared in .env.example" -Act
 Write-Section "Staging Migration"
 Invoke-Check -Id "MIG-1" -Name "Run migration 004 on staging Supabase" -Action {
   if (-not $RunStagingMigration) {
-    throw "Skipped. Re-run with -RunStagingMigration after Supabase access is restored."
+    Skip-Check -Reason "Re-run with -RunStagingMigration when staging Supabase access is available."
   }
 
   Assert-NonEmpty -Value $SupabaseProjectRef -Name "SupabaseProjectRef"
@@ -128,7 +166,26 @@ Invoke-Check -Id "MIG-1" -Name "Run migration 004 on staging Supabase" -Action {
 if (-not $SkipApiChecks) {
   Write-Section "API Runtime Checks"
 
+  $ApiBaseUrl = Resolve-Input -Value $ApiBaseUrl -EnvName "API_BASE_URL"
+  $ApiAuthToken = Resolve-Input -Value $ApiAuthToken -EnvName "API_AUTH_TOKEN"
+  $WorkspaceId = Resolve-Input -Value $WorkspaceId -EnvName "WORKSPACE_ID"
+  $ProductUrl = Resolve-Input -Value $ProductUrl -EnvName "PRODUCT_URL"
+  $InternalApiKey = Resolve-Input -Value $InternalApiKey -EnvName "INTERNAL_API_KEY"
+
+  $missingRuntimeInputs = @()
+  if ([string]::IsNullOrWhiteSpace($ApiBaseUrl)) { $missingRuntimeInputs += "ApiBaseUrl (or env API_BASE_URL)" }
+  if ([string]::IsNullOrWhiteSpace($ApiAuthToken)) { $missingRuntimeInputs += "ApiAuthToken (or env API_AUTH_TOKEN)" }
+  if ([string]::IsNullOrWhiteSpace($WorkspaceId)) { $missingRuntimeInputs += "WorkspaceId (or env WORKSPACE_ID)" }
+  if ([string]::IsNullOrWhiteSpace($ProductUrl)) { $missingRuntimeInputs += "ProductUrl (or env PRODUCT_URL)" }
+  if ([string]::IsNullOrWhiteSpace($InternalApiKey)) { $missingRuntimeInputs += "InternalApiKey (or env INTERNAL_API_KEY)" }
+
+  $canRunApiChecks = ($missingRuntimeInputs.Count -eq 0)
+
   Invoke-Check -Id "API-1" -Name "Inputs provided for runtime validation" -Action {
+    if (-not $canRunApiChecks) {
+      Skip-Check -Reason ("Missing runtime inputs: " + ($missingRuntimeInputs -join ", "))
+    }
+
     Assert-NonEmpty -Value $ApiBaseUrl -Name "ApiBaseUrl"
     Assert-NonEmpty -Value $ApiAuthToken -Name "ApiAuthToken"
     Assert-NonEmpty -Value $WorkspaceId -Name "WorkspaceId"
@@ -137,6 +194,10 @@ if (-not $SkipApiChecks) {
   }
 
   Invoke-Check -Id "API-2" -Name "Idempotency: duplicate submit returns same job" -Action {
+    if (-not $canRunApiChecks) {
+      Skip-Check -Reason "Skipped because required API runtime inputs are missing."
+    }
+
     $key = [guid]::NewGuid().ToString()
 
     $headers = @{
@@ -163,6 +224,10 @@ if (-not $SkipApiChecks) {
   }
 
   Invoke-Check -Id "API-3" -Name "Idempotency: missing header returns 400" -Action {
+    if (-not $canRunApiChecks) {
+      Skip-Check -Reason "Skipped because required API runtime inputs are missing."
+    }
+
     $headers = @{
       "Authorization" = "Bearer $ApiAuthToken"
       "Content-Type" = "application/json"
@@ -190,6 +255,10 @@ if (-not $SkipApiChecks) {
   }
 
   Invoke-Check -Id "API-4" -Name "Internal perf endpoint reachable with internal key" -Action {
+    if (-not $canRunApiChecks) {
+      Skip-Check -Reason "Skipped because required API runtime inputs are missing."
+    }
+
     $headers = @{
       "X-Internal-API-Key" = $InternalApiKey
       "Content-Type" = "application/json"
@@ -210,6 +279,10 @@ if (-not $SkipApiChecks) {
   }
 
   Invoke-Check -Id "API-5" -Name "Internal cost endpoint reachable with internal key" -Action {
+    if (-not $canRunApiChecks) {
+      Skip-Check -Reason "Skipped because required API runtime inputs are missing."
+    }
+
     $headers = @{
       "X-Internal-API-Key" = $InternalApiKey
       "Content-Type" = "application/json"
@@ -236,6 +309,12 @@ Add-ReportLine "- MAN-2 | TODO | Cost breaker threshold and hourly reset behavio
 Add-ReportLine "- MAN-3 | TODO | HeyGen success, HeyGen 429 to Tavus fallback, avatar to postprocess handoff"
 Add-ReportLine "- MAN-4 | TODO | Full E2E URL to brief to video to postprocess to Mux playback"
 
+Write-Section "Summary"
+Add-ReportLine "- PASS: $passCount"
+Add-ReportLine "- SKIP: $skipCount"
+Add-ReportLine "- FAIL: $failCount"
+
 Write-Host ""
 Write-Host "Validation report written:" -ForegroundColor Green
 Write-Host "$reportPath" -ForegroundColor Green
+Write-Host "Summary: PASS=$passCount SKIP=$skipCount FAIL=$failCount" -ForegroundColor Cyan
