@@ -25,8 +25,17 @@ updated: 2026-04-16
 | Phase 5 | Asset Library & Team | Week 9 | ❓ Not Validated |
 | Phase 6 | Platform, Billing & Trial | Week 10 | ❓ Not Validated |
 | Phase 7 | Polish, Observability & Launch | Week 11 | ❓ Not Validated |
+| Phase 8 | Microservices Domain Extraction | Post-launch | ✅ Complete |
 
-**Complete: 4/8 · Partial: 1/8 · Not Started: 3/8** *(as of Apr 16, 2026)*
+**Complete: 5/9 · Partial: 1/9 · Not Validated: 3/9** *(as of Apr 16, 2026)*
+
+### Phase 8 — Microservices Domain Extraction ✅ (Apr 16, 2026)
+- All handler business logic extracted into typed `internal/domain/*` packages
+- `domain/signal`: 8 packages (helpers, connections, metrics, fatigue, recommendations, gdpr, oauth, sync)
+- `handler/signal*.go`: 4 files slimmed to single-line delegates
+- `worker`: `VideoProvider` interface + `FalProvider` extracted from `generate.go`
+- `HandleGenerate` accepts injectable `VideoProvider` (testable, provider-agnostic)
+- Both `api` and `worker` modules build clean (`go build ./...`)
 
 ---
 

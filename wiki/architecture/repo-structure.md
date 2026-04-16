@@ -111,7 +111,13 @@ src/apps/web/
 src/services/api/
 ├── cmd/api/main.go
 ├── internal/
-│   ├── handler/          ← Echo route handlers
+│   ├── domain/           ← Business logic (extracted from handlers, Phase 8)
+│   │   ├── signal/       ← connections, metrics, fatigue, recommendations, gdpr, oauth, sync
+│   │   ├── brief/        ← brief extraction, angles, hooks
+│   │   ├── asset/        ← asset library logic
+│   │   ├── media/        ← mux, R2 upload helpers
+│   │   └── identity/     ← workspace, subscription, trial
+│   ├── handler/          ← Echo route handlers (thin delegates to domain/*)
 │   ├── middleware/        ← Clerk JWT, rate-limit, tier enforcement
 │   └── db/               ← sqlc-generated Go types
 ├── db/
@@ -129,6 +135,9 @@ src/services/api/
 src/services/worker/
 ├── cmd/worker/main.go
 └── internal/task/        ← Task handlers: brief:extract, generation:video, etc.
+    ├── video_provider.go ← VideoProvider interface + FalProvider (Phase 8)
+    ├── avatar_provider.go← AvatarProvider interface + HeyGenV3 + Tavus
+    └── generate.go       ← HandleGenerate(rdb, VideoProvider) — provider-injected
 ```
 
 ---
