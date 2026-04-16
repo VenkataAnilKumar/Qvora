@@ -24,9 +24,9 @@ type GeneratePayload struct {
 	Model       string `json:"model"` // veo3 | kling3 | runway4 | sora2
 	BrandKitID  string `json:"brand_kit_id,omitempty"`
 	// UseAvatar: if true, enqueue avatar task after FAL completes (V2V lip-sync)
-	UseAvatar         bool   `json:"use_avatar,omitempty"`
-	AudioURL          string `json:"audio_url,omitempty"`
-	AvatarProvider    string `json:"avatar_provider,omitempty"`
+	UseAvatar      bool   `json:"use_avatar,omitempty"`
+	AudioURL       string `json:"audio_url,omitempty"`
+	AvatarProvider string `json:"avatar_provider,omitempty"`
 }
 
 // modelDisplayNames maps internal model keys → human-readable cost-tracking names.

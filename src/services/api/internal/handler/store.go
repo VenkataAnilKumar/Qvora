@@ -2,49 +2,28 @@ package handler
 
 import (
 	"context"
-	"errors"
-	"os"
-	"strings"
-	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/qvora/api/internal/db"
+	"github.com/qvora/api/internal/store"
 )
 
-var (
-	dbInitOnce sync.Once
-	dbInitErr  error
-	dbPool     *pgxpool.Pool
-	dbQueries  *db.Queries
-)
+// dbPool mirrors the shared pool exposed by internal/store.
+// Updated on every successful queries() call so that handler functions that
+// access dbPool directly (after calling queries/getWorkspaceForOrg) still work.
+var dbPool *pgxpool.Pool
 
+// dbQueries kept for backward-compat during incremental migration.
+var dbQueries *db.Queries
+
+// queries initialises the store singleton and returns *db.Queries.
+// As a side-effect it updates dbPool so that handler functions which use it
+// directly (always after calling queries first) still compile and work.
 func queries(ctx context.Context) (*db.Queries, error) {
-	dbInitOnce.Do(func() {
-		databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
-		if databaseURL == "" {
-			dbInitErr = errors.New("DATABASE_URL is not set")
-			return
-		}
-
-		pool, err := pgxpool.New(ctx, databaseURL)
-		if err != nil {
-			dbInitErr = err
-			return
-		}
-
-		if err := pool.Ping(ctx); err != nil {
-			pool.Close()
-			dbInitErr = err
-			return
-		}
-
-		dbPool = pool
-		dbQueries = db.New(pool)
-	})
-
-	if dbInitErr != nil {
-		return nil, dbInitErr
+	q, err := store.Queries(ctx)
+	if err == nil {
+		dbPool = store.Pool()
+		dbQueries = q
 	}
-
-	return dbQueries, nil
+	return q, err
 }
