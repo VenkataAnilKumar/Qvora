@@ -65,7 +65,7 @@ coverage/
 .doppler/
 
 # Local QA artifacts
-docs/07-implementation/PHASE0_3_FIXES_ONE_SHOT_*.md
+docs/07-implementation/PHASE0_3_VALIDATION_ONE_SHOT_*.md
 
 # Local agent settings
 .claude/

@@ -1,5 +1,5 @@
 # Qvora — Implementation Phases
-**Version:** 3.1 | **Updated:** April 16, 2026 | **Status:** Phases 0–3 Baseline Complete; Hardening In Progress
+**Version:** 3.2 | **Updated:** April 16, 2026 | **Status:** Phases 0–3 Complete
 
 ---
 
@@ -25,7 +25,7 @@
 
 ## Phases 0–3 — Complete
 
-Baseline delivery for Phases 0–3 is complete. See `IMPLEMENTATION_CHECKLIST.md` for current hardening status under **Phase 0–3 Fixes — In Progress**.
+Baseline delivery for Phases 0–3 is complete.
 
 ---
 

@@ -17,7 +17,7 @@ $failCount = 0
 $skipCount = 0
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$reportPath = Join-Path $repoRoot ("docs/07-implementation/PHASE0_3_FIXES_ONE_SHOT_" + (Get-Date -Format "yyyy-MM-dd_HHmmss") + ".md")
+$reportPath = Join-Path $repoRoot ("docs/07-implementation/PHASE0_3_VALIDATION_ONE_SHOT_" + (Get-Date -Format "yyyy-MM-dd_HHmmss") + ".md")
 
 function Add-ReportLine {
   param([string]$Line)
