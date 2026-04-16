@@ -63,3 +63,13 @@ coverage/
 
 # Doppler
 .doppler/
+
+# Local QA artifacts
+docs/07-implementation/PHASE0_3_FIXES_ONE_SHOT_*.md
+
+# Local agent settings
+.claude/
+
+# Supabase local state
+supabase/.branches/
+supabase/.temp/
