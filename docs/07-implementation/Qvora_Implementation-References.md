@@ -1,6 +1,7 @@
 # Qvora — Implementation Reference Resources
 
 > Authoritative doc links, SDK identifiers, and Qvora-specific implementation notes for every layer of the stack. Use this as the single lookup document when building any module.
+> Status: Transitional — V1 runtime references are preserved; Phase 8+ target architecture is documented in `../06-technical/Qvora_Microservice-Architecture.md`.
 
 ---
 
@@ -10,9 +11,9 @@
 |---|---|---|
 | Frontend | Next.js 15 App Router + shadcn/ui + Tailwind v4 | Vercel |
 | BFF | tRPC (TypeScript ≥5.7.2) | Vercel (Edge/Node) |
-| Generation Stream | SSE Route Handler `/api/generation/[jobId]/stream` | Vercel |
+| Generation Stream | SSE Route Handler `/api/generation/[jobId]/stream` (V1) | Vercel |
 | API | Go Echo v4 | Railway |
-| Job Workers | Go + asynq | Railway |
+| Job Workers | Go + asynq (V1) | Railway |
 | Video Post-Processing | Rust Axum + ffmpeg-sys | Railway |
 | AI Orchestration | Vercel AI SDK v6 | — |
 | Text-to-Video | FAL.AI (Veo 3.1, Kling 3.0, Runway Gen-4.5, Sora 2) | FAL.AI |
@@ -52,7 +53,8 @@
 
 **Qvora notes:**
 - App Router only. No Pages Router.
-- SSE generation progress uses a standalone Route Handler at `/api/generation/[jobId]/stream` with `ReadableStream` — **not** tRPC.
+- SSE generation progress uses a standalone Route Handler at `/api/generation/[jobId]/stream` with `ReadableStream` — **not** tRPC (V1 compatibility path).
+- Phase 8+ target replaces SSE with Supabase Realtime.
 - `clerkMiddleware()` wraps the default middleware export.
 
 ---
@@ -602,7 +604,7 @@ npm install @aws-sdk/client-s3 @aws-sdk/s3-request-presigner
 **Subscription statuses:**
 | Status | Meaning |
 |---|---|
-| `trialing` | 7-day trial active — provision access |
+| `trialing` | 14-day trial active — provision access |
 | `active` | Paid and current — provision access |
 | `past_due` | Payment failed — restrict new generations, show warning |
 | `canceled` | Subscription ended — lock to read-only |
@@ -611,7 +613,7 @@ npm install @aws-sdk/client-s3 @aws-sdk/s3-request-presigner
 
 **Key webhooks to handle:**
 - `invoice.paid` → activate/continue subscription
-- `customer.subscription.trial_will_end` → Day 6 conversion email trigger
+- `customer.subscription.trial_will_end` → Day 10 conversion email trigger
 - `customer.subscription.updated` → tier change, provision/deprovision features
 - `customer.subscription.deleted` → lock workspace
 
@@ -820,7 +822,7 @@ src/
 
 ### 13.2 SSE Generation Progress (Not tRPC)
 
-The generation progress stream is a **standalone Next.js Route Handler**, not a tRPC subscription:
+The generation progress stream is a **standalone Next.js Route Handler** in V1, not a tRPC subscription:
 
 ```typescript
 // app/api/generation/[jobId]/stream/route.ts
@@ -854,16 +856,18 @@ export async function GET(
 }
 ```
 
+Phase 8+ target replaces this stream with Supabase Realtime channel subscriptions.
+
 ---
 
-### 13.3 HeyGen Version Migration
+### 13.3 HeyGen Version Note
 
-Architecture documents reference "HeyGen API v4" — this is incorrect. The actual versions are:
+If any legacy note references "HeyGen API v4", it is incorrect. The actual versions are:
 - **v3** = current active platform (`developers.heygen.com`)
 - **v2** = legacy, supported until Oct 31, 2026
 - **v4** = does not exist
 
-**Action required:** Migrate lip-sync integration to v3 API. V2V lip-sync is only available in v3.
+V2V lip-sync is only available in v3.
 
 ---
 
@@ -879,7 +883,7 @@ func checkTierLimits(next echo.HandlerFunc) echo.HandlerFunc {
         maxVariants := map[string]int{
             "starter": 3,
             "growth":  10,
-            "scale":   -1, // unlimited
+          "agency":  -1, // unlimited
         }[workspace.PlanTier]
         
         if maxVariants != -1 && variantCount >= maxVariants {

@@ -1,5 +1,5 @@
 # Qvora — Implementation Phases
-**Version:** 3.0 | **Updated:** April 16, 2026 | **Status:** Phases 0–3 Complete
+**Version:** 3.1 | **Updated:** April 16, 2026 | **Status:** Phases 0–3 Baseline Complete; Hardening In Progress
 
 ---
 
