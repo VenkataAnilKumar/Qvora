@@ -110,15 +110,15 @@ Qvora is composed of four named product layers:
 
 **AI Generation Modes (direct primitives):**
 
-| Mode | Input | Output | Primary Model |
-|---|---|---|---|
-| **Text → Video** | Script or text prompt | Cinematic video clip | Veo 3.1 / Kling 3.0 / Runway Gen-4.5 (via FAL.AI) |
-| **Image → Video** | Product image + motion prompt | Animated clip from static image | Kling 3.0 / Runway Gen-4 |
-| **Voice → Video** | Uploaded audio or cloned voice | Lip-synced avatar video | HeyGen Avatar IV + ElevenLabs |
+| Mode | Input | Output | Primary Model | V1? |
+|---|---|---|---|---|
+| **Text → Video** | Script or text prompt | Cinematic video clip | Veo 3.1 / Kling 3.0 / Runway Gen-4.5 / Sora 2 (via FAL.AI) | ✅ V1 |
+| **Image → Video** | Product image + motion prompt | Animated clip from static image | Kling 3.0 / Runway Gen-4 | V2 |
+| **Voice → Video** | Uploaded audio or cloned voice | Lip-synced avatar video | HeyGen Avatar v3 + ElevenLabs | ✅ V1 |
 
-- **Text → Video:** Brief script → cinematic product shot, B-roll, or brand story; model selector (Auto / Veo 3.1 / Kling 3.0 / Runway); Kling 3.0 supports clips up to 2 minutes
-- **Image → Video:** Upload a product hero image → animate with motion (zoom, rotate, pan, splash); auto-sources from product page extraction
-- **Voice → Video:** Upload your own voice or use a cloned brand voice → lip-synced to a chosen avatar via HeyGen Avatar IV; 175+ languages; photorealistic micro-expressions
+- **Text → Video (V1):** Brief script → cinematic product shot, B-roll, or brand story; model selector (Auto / Veo 3.1 / Kling 3.0 / Runway Gen-4.5 / Sora 2); 9:16 aspect ratio enforced
+- **Image → Video (V2):** Upload a product hero image → animate with motion (zoom, rotate, pan, splash); auto-sources from product page extraction
+- **Voice → Video (V1):** Upload your own voice or use a cloned brand voice → lip-synced to a chosen avatar via HeyGen Avatar v3; 175+ languages
 
 **Controls (all formats):**
 - Tone selector (energetic, trustworthy, casual, premium)
@@ -176,7 +176,7 @@ Qvora is composed of four named product layers:
 |---|---|
 | **Input** | Product URL, text brief, product image, or audio file |
 | **Output** | 5–10 ready-to-export video ads across 3–5 creative angles |
-| **Formats** | UGC-style, spokesperson, product demo, voiceover-only, Text→Video, Image→Video, Voice→Video |
+| **Formats** | UGC-style, spokesperson, product demo, voiceover-only, Text→Video, Voice→Video (Image→Video: V2) |
 | **Platforms** | TikTok, Instagram Reels, Meta Feed/Stories, YouTube Shorts |
 | **Time to first ad** | < 15 minutes from signup |
 | **Generation latency** | Brief: < 15s; UGC/Demo: 60–180s; T2V: 30–120s; I2V: 20–60s; V2V: 60–180s |
@@ -192,8 +192,8 @@ Qvora is composed of four named product layers:
 | AI voiceover (20+ voices) | MVP | P0 |
 | UGC-style video generation | MVP | P0 |
 | Text → Video (FAL.AI: Veo 3.1 / Kling 3.0 / Runway) | MVP | P0 |
-| Image → Video (Kling 3.0) | MVP | P0 |
-| Voice → Video lip-sync (HeyGen Avatar IV) | MVP | P0 |
+| Image → Video (Kling 3.0) | V2 | P0 |
+| Voice → Video lip-sync (HeyGen Avatar v3) | MVP | P0 |
 | Voice cloning for brand voice (Growth+) | MVP | P1 |
 | 9:16 / 1:1 / 16:9 export + platform compliance | MVP | P0 |
 | Brand kit (logo, colors, fonts) | MVP | P1 |
@@ -279,10 +279,9 @@ EPIC 8 — Platform & Administration
 
 | Tier | Price | Target | Limits |
 |---|---|---|---|
-| **Starter** | $99/mo | Freelance media buyers, small agencies | 20 ads/mo, 1 brand kit |
-| **Growth** | $149/mo | DTC brands, growing agencies | 100 ads/mo, 3 brand kits, ad account sync |
-| **Scale** | $399/mo | Mid-market teams, agencies | Unlimited ads, 10 brand kits, Qvora Signal, team seats |
-| **Enterprise / Pro** | Custom | Large agencies, enterprise brands | Qvora API, SSO, SLA, dedicated CSM |
+| **Starter** | $99/mo | Freelance media buyers, small agencies | 20 ads/mo, 1 brand kit, 1 seat, 3 variants/angle |
+| **Growth** | $149/mo | DTC brands, growing agencies | 100 ads/mo, 3 brand kits, 5 seats, 10 variants/angle, voice cloning |
+| **Agency** | $399/mo | Mid-market teams, agencies | Unlimited ads, unlimited brand kits, unlimited seats, 4K export, custom avatar (V2) |
 
 > **Trial & Acquisition Motion:** Every major competitor offers a free tier. Qvora's documented acquisition motion is a **7-day full-access trial** (no credit card; limit 3 exported ad sets). Creates a real working ad set in the first session — Qvora's strongest conversion argument. See [Qvora_Product-Definition.md](Qvora_Product-Definition.md) §5 for full rationale and alternatives.
 
@@ -307,7 +306,7 @@ EPIC 8 — Platform & Administration
   │   Text → Video  (FAL.AI: Veo 3.1 / Kling 3.0 /     │
   │                  Runway Gen-4.5 / Sora 2)           │
   │   Image → Video (Kling 3.0 / Runway / SVD)          │
-  │   Voice → Video (HeyGen Avatar IV + ElevenLabs)     │
+  │   Voice → Video (HeyGen Avatar v3 + ElevenLabs)     │
   └──────────────────────────────────────────────────────┘
   Voiceover Engine (ElevenLabs — 20+ voices; voice clone Growth+)
   Caption / Subtitle Engine (auto-transcription)

@@ -439,9 +439,9 @@ VOICE → VIDEO selected:
 
 | Moment | Trigger | CTA |
 |---|---|---|
-| Hit brand kit limit | User tries to add 4th brand on Growth plan | *"You've reached your 3-brand limit. Upgrade to Scale for unlimited brands."* |
-| Hit ad limit | 80% of monthly ads used | *"Running low? Scale tier = unlimited ads."* |
-| Team invite needed | User tries to invite 6th member on Growth | *"Add unlimited seats on Scale."* |
+| Hit brand kit limit | User tries to add 4th brand on Growth plan | *"You've reached your 3-brand limit. Upgrade to Agency for unlimited brands."* |
+| Hit ad limit | 80% of monthly ads used | *"Running low? Agency tier = unlimited ads."* |
+| Team invite needed | User tries to invite 6th member on Growth | *"Add unlimited seats on Agency."* |
 | Signal curiosity | User asks about performance | *"Connect your Meta account to see which angles are actually winning."* (V2 upgrade prompt) |
 
 ---

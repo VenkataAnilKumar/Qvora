@@ -91,17 +91,18 @@ src/
 - [Product definition](docs/02-product/Qvora_Product-Definition.md)
 - [Feature specification](docs/04-specs/Qvora_Feature-Spec.md)
 - [User stories](docs/04-specs/Qvora_User-Stories.md)
-- [Architecture stack](docs/05-technical/Qvora_Architecture-Stack.md)
-- [Repository structure](docs/05-technical/Qvora_Repo-Structure.md)
-- [Implementation references](docs/06-implementation/Qvora_Implementation-References.md)
-- [Implementation plan](docs/06-implementation/Qvora_Implementation-Plan.md)
+- [Architecture stack](docs/06-technical/Qvora_Architecture-Stack.md)
+- [Repository structure](docs/06-technical/Qvora_Repo-Structure.md)
+- [Implementation phases](docs/07-implementation/Qvora_Implementation-Phases.md)
+- [Implementation checklist](docs/07-implementation/IMPLEMENTATION_CHECKLIST.md)
+- [Implementation references](docs/07-implementation/Qvora_Implementation-References.md)
 
 ## Getting Started
-Implementation scaffolding is being built. Until code bootstrap lands, use docs-first workflow:
 
 1. Read [Project context](.github/CONTEXT.md)
-2. Read [Architecture stack](docs/05-technical/Qvora_Architecture-Stack.md)
-3. Follow [Implementation plan](docs/06-implementation/Qvora_Implementation-Plan.md)
+2. Read [Architecture stack](docs/06-technical/Qvora_Architecture-Stack.md)
+3. Check current status in [Implementation checklist](docs/07-implementation/IMPLEMENTATION_CHECKLIST.md)
+4. Read the relevant phase in [Implementation phases](docs/07-implementation/Qvora_Implementation-Phases.md)
 
 ## License
 Proprietary. All rights reserved.

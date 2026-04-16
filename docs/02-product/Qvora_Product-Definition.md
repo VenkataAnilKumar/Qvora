@@ -368,7 +368,7 @@ Q  V  O  R  A
 | UGC-style video generation | MVP | P0 | High |
 | Text → Video (FAL.AI: Veo 3.1 / Kling 3.0 / Runway Gen-4.5) | MVP | P0 | High |
 | Image → Video (Kling 3.0 / Runway / SVD) | MVP | P0 | Medium |
-| Voice → Video lip-sync (HeyGen Avatar IV + ElevenLabs) | MVP | P0 | High |
+| Voice → Video lip-sync (HeyGen Avatar v3 + ElevenLabs) | MVP | P0 | High |
 | Spokesperson/avatar generation | MVP | P0 | High |
 | Auto captions/subtitles | MVP | P0 | Low |
 | 9:16 export + platform compliance | MVP | P0 | Medium |

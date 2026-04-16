@@ -154,8 +154,6 @@ export const briefsRouter = createTRPCRouter({
       }
 
       // Step 4: Persist brief + angles + hooks to Go API
-      const briefId = crypto.randomUUID();
-      const createdAt = new Date().toISOString();
       const persistResponse = await fetch(`${GO_API_BASE_URL}/api/v1/briefs`, {
         method: "POST",
         headers: buildInternalHeaders({
@@ -165,29 +163,35 @@ export const briefsRouter = createTRPCRouter({
           headers: ctx.headers,
         }),
         body: JSON.stringify({
-          brief_id: briefId,
           product_url: input.productUrl,
           template: input.template ?? null,
           model: input.model,
-          product,
           angles: brief.angles,
           hooks: brief.hooks,
         }),
         cache: "no-store",
       });
       if (!persistResponse.ok) {
-        // Non-fatal: brief was generated — return result even if persistence fails
-        // The caller can retry persistence independently
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: await parseApiError(persistResponse),
+        });
       }
 
+      const persisted = (await persistResponse.json()) as {
+        brief_id: string;
+        created_at: string;
+        status: string;
+      };
+
       return {
-        briefId,
-        scrapeJobId: briefId,
+        briefId: persisted.brief_id,
+        scrapeJobId: persisted.brief_id,
         orgId: ctx.orgId,
-        status: "generated",
+        status: persisted.status,
         productUrl: input.productUrl,
         model: input.model,
-        createdAt,
+        createdAt: persisted.created_at,
         product,
         angles: brief.angles,
         hooks: brief.hooks,

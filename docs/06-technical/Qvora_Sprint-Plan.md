@@ -1,7 +1,7 @@
 # Qvora Sprint Plan
 
 **Product:** Qvora — AI Ad Creative Agent  
-**Planning Horizon:** Sprint 0–4 (10 weeks to MVP)  
+**Planning Horizon:** Sprint 0–4 (11 weeks to MVP)  
 **Methodology:** 2-week sprints, async-first team  
 **Definition of Done:** Feature merged to `main`, passing tests, deployed to staging, acceptance criteria verified
 
@@ -34,7 +34,7 @@
 **Out of scope for MVP (V2):**
 - Performance learning loop (fatigue detection, A/B data)
 - Ad platform integrations (Meta/TikTok API)
-- Image→Video and Voice→Video modes
+- Image→Video mode (V2V / Voice→Video is V1)
 - White-label / custom domain
 - Advanced analytics dashboard
 
@@ -277,7 +277,7 @@ V2 work not in MVP scope, ordered by customer value:
 | Priority | Feature | Why Deferred |
 |---|---|---|
 | P1 | Image→Video (i2v) mode | FAL.AI integration pattern same as T2V; deferred to reduce Sprint 2 scope |
-| P1 | Voice→Video (v2v) mode | HeyGen Avatar IV integration adds complexity; worth a dedicated sprint |
+| P1 | Voice→Video (v2v) mode | HeyGen Avatar v3 integration adds complexity; worth a dedicated sprint |
 | P1 | Performance learning loop | Requires ad_accounts + asset_metrics data; needs V1 to collect baseline data first |
 | P2 | Meta Ads / TikTok Ads API integration | Requires OAuth flows + partner API access approval |
 | P2 | Ad fatigue detection | Needs 60+ days of performance data per account |
@@ -297,7 +297,7 @@ V2 work not in MVP scope, ordered by customer value:
 | Playwright scraper blocked by bot detection | High | Medium | Fallback chain: Playwright → Jina Reader API → raw fetch → graceful error |
 | Stripe webhook delays causing plan mismatch | Low | Medium | Optimistic plan grant on checkout session, confirm on webhook arrival |
 | Supabase RLS misconfiguration | Low | Critical | Automated RLS penetration test in Sprint 4: Org A JWT + Org B resource ID → must return `403` |
-| HeyGen Avatar IV not available for V1 | Medium | Low | V2V is post-MVP; no impact on Sprint 0–4 |
+| HeyGen Avatar v3 not available for V1 | Medium | Low | V2V is post-MVP; no impact on Sprint 0–4 |
 | Sprint 2 overload (15 stories, 37 points) | Medium | Medium | Split: backend (S2-01→S2-08) done by W5 day 4; frontend (S2-09→S2-13) can start W5 day 3 with mock API |
 
 ---

@@ -1,23 +1,22 @@
 package handler
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
-	"github.com/hibiken/asynq"
-	"github.com/qvora/api/internal/db"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/labstack/echo/v4"
+	"github.com/qvora/api/internal/db"
 	appmiddleware "github.com/qvora/api/internal/middleware"
 )
 
-const scrapeTaskType = "job:scrape"
-
 // CreateBrief godoc
 // POST /api/v1/briefs
+// Called by the web tRPC layer after AI generation is complete (scrape + generateObject ×2).
+// Persists the brief record and all angles + hooks to the DB.
+// No worker enqueue — scraping and generation are done entirely in the Next.js BFF.
 func CreateBrief(c echo.Context) error {
 	claims := appmiddleware.GetClaims(c)
 	if claims == nil {
@@ -27,6 +26,15 @@ func CreateBrief(c echo.Context) error {
 	var req struct {
 		ProductURL string `json:"product_url"`
 		Template   string `json:"template"`
+		Model      string `json:"model"`
+		Angles     []struct {
+			Angle     string  `json:"angle"`
+			Headline  string  `json:"headline"`
+			Script    string  `json:"script"`
+			Cta       string  `json:"cta"`
+			VoiceTone *string `json:"voice_tone"`
+		} `json:"angles"`
+		Hooks []string `json:"hooks"`
 	}
 
 	if err := c.Bind(&req); err != nil {
@@ -41,6 +49,11 @@ func CreateBrief(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_product_url"})
 	}
 
+	req.Model = strings.TrimSpace(strings.ToLower(req.Model))
+	if req.Model == "" {
+		req.Model = "gpt-4o"
+	}
+
 	q, err := queries(c.Request().Context())
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
@@ -51,53 +64,68 @@ func CreateBrief(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
 	}
 
-	job, err := q.CreateJob(c.Request().Context(), db.CreateJobParams{
-		WorkspaceID: workspaceID,
-		ProductUrl:  req.ProductURL,
-		Model:       "veo3",
-	})
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_create_failed"})
-	}
-
+	// scrape_job_id is intentionally null — scraping is done in the web tRPC layer,
+	// not via the asynq worker pipeline. No worker job exists for this brief.
 	brief, err := q.CreateBrief(c.Request().Context(), db.CreateBriefParams{
 		WorkspaceID: workspaceID,
-		ScrapeJobID: job.ID,
+		ScrapeJobID: pgtype.UUID{}, // null
 		ProductUrl:  req.ProductURL,
-		Model:       "veo3",
-		Status:      "queued",
+		Model:       req.Model,
+		Status:      "generated",
 	})
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_create_failed"})
 	}
 
-	if err := enqueueScrapeTask(uuidString(job.ID), claims.OrgID, req.ProductURL); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_enqueue_failed"})
+	// Persist angles — fatal: an incomplete brief is worse than a failed request.
+	// brief_id is included in error so the caller can clean up or retry.
+	for _, a := range req.Angles {
+		angle := strings.TrimSpace(a.Angle)
+		if angle == "" {
+			continue
+		}
+		if _, err := q.CreateBriefAngle(c.Request().Context(), db.CreateBriefAngleParams{
+			BriefID:   brief.ID,
+			Angle:     angle,
+			Headline:  strings.TrimSpace(a.Headline),
+			Script:    strings.TrimSpace(a.Script),
+			Cta:       strings.TrimSpace(a.Cta),
+			VoiceTone: a.VoiceTone,
+		}); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]any{
+				"error":    "brief_angle_persist_failed",
+				"brief_id": uuidString(brief.ID),
+			})
+		}
 	}
 
-	updatedBrief, err := q.UpdateBriefStatus(c.Request().Context(), db.UpdateBriefStatusParams{
-		ID:     brief.ID,
-		Status: "scraping",
-	})
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_update_failed"})
+	// Persist hooks — fatal for the same reason.
+	for _, h := range req.Hooks {
+		hook := strings.TrimSpace(h)
+		if hook == "" {
+			continue
+		}
+		if _, err := q.CreateBriefHook(c.Request().Context(), db.CreateBriefHookParams{
+			BriefID: brief.ID,
+			Hook:    hook,
+		}); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]any{
+				"error":    "brief_hook_persist_failed",
+				"brief_id": uuidString(brief.ID),
+			})
+		}
 	}
 
-	if _, err := q.UpdateJobStatus(c.Request().Context(), db.UpdateJobStatusParams{
-		ID:     job.ID,
-		Status: "scraping",
-	}); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_update_failed"})
-	}
-
-	return c.JSON(http.StatusAccepted, map[string]any{
-		"brief_id":      uuidString(updatedBrief.ID),
-		"scrape_job_id": uuidString(updatedBrief.ScrapeJobID),
-		"org_id":        claims.OrgID,
-		"product_url":   updatedBrief.ProductUrl,
-		"template":      strings.TrimSpace(req.Template),
-		"status":        updatedBrief.Status,
-		"created_at":    tsTime(updatedBrief.CreatedAt),
+	return c.JSON(http.StatusCreated, map[string]any{
+		"brief_id":    uuidString(brief.ID),
+		"org_id":      claims.OrgID,
+		"product_url": brief.ProductUrl,
+		"model":       brief.Model,
+		"template":    strings.TrimSpace(req.Template),
+		"status":      brief.Status,
+		"angle_count": len(req.Angles),
+		"hook_count":  len(req.Hooks),
+		"created_at":  tsTime(brief.CreatedAt),
 	})
 }
 
@@ -131,12 +159,12 @@ func ListBriefs(c echo.Context) error {
 	briefs := make([]map[string]any, 0, len(rows))
 	for _, brief := range rows {
 		briefs = append(briefs, map[string]any{
-			"brief_id":      uuidString(brief.ID),
-			"scrape_job_id": uuidString(brief.ScrapeJobID),
-			"org_id":        claims.OrgID,
-			"product_url":   brief.ProductUrl,
-			"status":        brief.Status,
-			"created_at":    tsTime(brief.CreatedAt),
+			"brief_id":    uuidString(brief.ID),
+			"org_id":      claims.OrgID,
+			"product_url": brief.ProductUrl,
+			"model":       brief.Model,
+			"status":      brief.Status,
+			"created_at":  tsTime(brief.CreatedAt),
 		})
 	}
 
@@ -146,33 +174,69 @@ func ListBriefs(c echo.Context) error {
 	})
 }
 
-func enqueueScrapeTask(jobID, workspaceID, productURL string) error {
-	redisURL := strings.TrimSpace(os.Getenv("RAILWAY_REDIS_URL"))
-	if redisURL == "" {
-		return fmt.Errorf("RAILWAY_REDIS_URL not set")
+// GetBrief godoc
+// GET /api/v1/briefs/:id
+func GetBrief(c echo.Context) error {
+	claims := appmiddleware.GetClaims(c)
+	if claims == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}
 
-	redisOpt, err := asynq.ParseRedisURI(redisURL)
+	briefID := strings.TrimSpace(c.Param("id"))
+	parsedBriefID, err := parseUUID(briefID)
 	if err != nil {
-		return fmt.Errorf("parse redis uri: %w", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_brief_id"})
 	}
 
-	client := asynq.NewClient(redisOpt)
-	defer client.Close()
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
+	}
 
-	payload, err := json.Marshal(map[string]string{
-		"job_id":       jobID,
-		"workspace_id": workspaceID,
-		"product_url":  productURL,
+	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
+	}
+
+	brief, err := q.GetBriefByID(c.Request().Context(), db.GetBriefByIDParams{
+		ID:          parsedBriefID,
+		WorkspaceID: workspaceID,
 	})
 	if err != nil {
-		return fmt.Errorf("marshal scrape payload: %w", err)
+		if err == pgx.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "brief_not_found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_lookup_failed"})
 	}
 
-	task := asynq.NewTask(scrapeTaskType, payload, asynq.Queue("default"))
-	if _, err := client.Enqueue(task); err != nil {
-		return fmt.Errorf("enqueue scrape task: %w", err)
+	angles, _ := q.ListBriefAngles(c.Request().Context(), brief.ID)
+	hooks, _ := q.ListBriefHooks(c.Request().Context(), brief.ID)
+
+	angleList := make([]map[string]any, 0, len(angles))
+	for _, a := range angles {
+		angleList = append(angleList, map[string]any{
+			"angle":      a.Angle,
+			"headline":   a.Headline,
+			"script":     a.Script,
+			"cta":        a.Cta,
+			"voice_tone": a.VoiceTone,
+		})
 	}
 
-	return nil
+	hookList := make([]string, 0, len(hooks))
+	for _, h := range hooks {
+		hookList = append(hookList, h.Hook)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"brief_id":    uuidString(brief.ID),
+		"org_id":      claims.OrgID,
+		"product_url": brief.ProductUrl,
+		"model":       brief.Model,
+		"status":      brief.Status,
+		"angles":      angleList,
+		"hooks":       hookList,
+		"created_at":  tsTime(brief.CreatedAt),
+		"updated_at":  tsTime(brief.UpdatedAt),
+	})
 }

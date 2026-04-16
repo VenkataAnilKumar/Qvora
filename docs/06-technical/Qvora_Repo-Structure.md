@@ -199,7 +199,7 @@ qvora/                                   ← Turborepo root
 │   ├── 04-specs/                        ← Feature spec, user stories, user journey
 │   ├── 05-design/                       ← Design system, wireframes, UI spec
 │   ├── 06-technical/                    ← Architecture, DB schema, API design, sprint plan, repo structure
-│   └── 07-implementation/               ← Implementation plan, SDK references
+│   └── 07-implementation/               ← Phases tracker, task checklist, SDK references (3 docs)
 │
 ├── .env.example                         ← All env vars documented, no secrets
 ├── .gitignore

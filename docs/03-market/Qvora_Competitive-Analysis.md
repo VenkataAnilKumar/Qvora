@@ -237,11 +237,11 @@ OpenAI shut down Sora 1 on March 24, 2026. Downloads had declined 45% and Disney
 | **Runway Gen-4.5** | Runway | Best camera control (pan/zoom/dolly/static), professional standard | Up to 60s | Usage-based | T2V with camera direction |
 | **Sora 2** | OpenAI | Cinematic physics, synchronized audio, high prompt adherence | ~30s | Usage-based | High-fidelity T2V |
 | **Stable Video Diffusion** | Stability AI | Open-source, customizable, ControlNet support | Short clips | Self-hosted option | I2V fallback / cost control |
-| **HeyGen Avatar IV** | HeyGen | #1 photorealistic lip-sync, full-body motion, 175+ languages | Up to 5 min | API credits | All V2V generation |
+| **HeyGen Avatar v3** | HeyGen | #1 photorealistic lip-sync, full-body motion, 175+ languages | Up to 5 min | API credits | All V2V generation |
 
 ### API Routing Strategy
 - **Primary API layer:** FAL.AI unified API — access to 600+ models including all above at $0.05–$0.40/sec
-- **V2V dedicated:** HeyGen Avatar IV API (separate integration; premium lip-sync quality)
+- **V2V dedicated:** HeyGen Avatar v3 API (separate integration; premium lip-sync quality)
 - **Fallback logic:** If primary model unavailable (outage/rate limit), auto-route to next preferred model per use case
 - **Cost ceiling:** Average generation COGS ≤ $0.40/video to maintain unit economics at Starter tier ($99/mo, 20 ads)
 

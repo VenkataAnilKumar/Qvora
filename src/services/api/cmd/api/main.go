@@ -71,6 +71,7 @@ func main() {
 	briefs := v1.Group("/briefs", appmiddleware.RequireWorkspace())
 	briefs.POST("", handler.CreateBrief)
 	briefs.GET("", handler.ListBriefs)
+	briefs.GET("/:id", handler.GetBrief)
 	briefs.POST("/:briefId/batch-generate", handler.BatchGenerateVariants)
 
 	// Workspaces

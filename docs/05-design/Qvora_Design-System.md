@@ -116,6 +116,15 @@ shadcn/ui uses CSS variable convention: `--background`, `--foreground`, `--prima
   --color-success-foreground: rgb(var(--success-foreground) / <alpha-value>);
   --color-data:               rgb(var(--data) / <alpha-value>);
   --color-data-foreground:    rgb(var(--data-foreground) / <alpha-value>);
+
+  /* Platform badge colors — used in export UI and asset library filters */
+  --color-platform-meta:          0 130 251;   /* #0082FB */
+  --color-platform-tiktok:        1 1 1;       /* #010101 */
+  --color-platform-tiktok-fg:     255 255 255;
+  --color-platform-youtube:       255 0 0;     /* #FF0000 */
+  --color-platform-youtube-fg:    255 255 255;
+  --color-platform-instagram:     225 48 108;  /* #E1306C */
+  --color-platform-instagram-fg:  255 255 255;
 }
 ```
 
@@ -135,6 +144,10 @@ shadcn/ui uses CSS variable convention: `--background`, `--foreground`, `--prima
 | `--destructive` (Red) | `#FF3D3D` | Fatigue alerts, errors, warnings, plan limit |
 | `--data` (Blue) | `#2E9CFF` | Charts, analytics values, Signal data, metrics |
 | `--muted-foreground` | `#78788C` | Placeholder text, secondary labels, timestamps |
+| `--color-platform-meta` | `#0082FB` | Meta platform badge fill |
+| `--color-platform-tiktok` | `#010101` | TikTok platform badge fill (white text) |
+| `--color-platform-youtube` | `#FF0000` | YouTube platform badge fill (white text) |
+| `--color-platform-instagram` | `#E1306C` | Instagram platform badge fill (white text) |
 
 ### Do Not Use
 - Raw hex values in components — always use CSS variables via Tailwind `bg-background`, `text-foreground` etc.

@@ -271,7 +271,7 @@ EPIC 8 — Platform & Administration
 - [ ] Voice library: minimum 20 voices (varied: gender, age, accent, energy level — calm / upbeat / authoritative)
 - [ ] Preview: 5-second avatar preview clip and voice sample before selection
 - [ ] Avatar + voice combination saved per brand kit (default for future generations)
-- [ ] Custom avatar upload: Enterprise tier only
+- [ ] Custom avatar upload: V2 roadmap (not V1)
 
 ---
 
@@ -307,7 +307,7 @@ EPIC 8 — Platform & Administration
 - [ ] Variants auto-named with `variant_index` (v1, v2, ... v10)
 - [ ] Batch generation queued and processed asynchronously
 - [ ] User notified when batch complete
-- [ ] Scale tier: unlimited variants; Starter tier: max 3 variants per angle
+- [ ] Agency tier: unlimited variants; Starter tier: max 3 variants per angle
 
 **Research signal:** Meta campaigns now require 1,000+ creative assets (Marketing Brew, 2026). Batch generation is table stakes for agencies.
 
@@ -377,15 +377,15 @@ EPIC 8 — Platform & Administration
 - [ ] Voice input Mode C — Voice clone (Growth+): upload 30s+ audio sample → clone voice stored per brand
 - [ ] Voice clone consent: checkbox declaration required ("I confirm I have rights to this voice") — cannot proceed without
 - [ ] Avatar selection: same 100+ avatar library; filter by gender, age, ethnicity, style
-- [ ] Lip-sync engine: HeyGen Avatar IV (frame-accurate, micro-expressions, natural head movement)
+- [ ] Lip-sync engine: HeyGen Avatar v3 (frame-accurate, micro-expressions, natural head movement)
 - [ ] Language support: lip-sync works for all 175+ HeyGen-supported languages
-- [ ] Duration: matches audio length; max 60s (Starter/Growth), max 5 min (Scale/Enterprise)
+- [ ] Duration: matches audio length; max 60s (Starter/Growth), max 5 min (Agency)
 - [ ] Background options: solid color / blurred lifestyle / product-matched (from brand kit)
 - [ ] Captions auto-generated from audio transcription; styled to brand kit
 - [ ] Generation latency: 60–180s for 30s lip-synced video
 - [ ] Output tagged: `generation_mode: voice_to_video`, `voice_source`, `avatar_id`, `language`
 
-**Research signal:** HeyGen Avatar IV ranked #1 for photorealism in 2026 — full-body motion capture, timing-aware gestures, accurate lip-sync across 175+ languages. ElevenLabs provides the voice layer. Arcads uses this pattern but without voice cloning or brand voice persistence (Marketer Milk, 2026).
+**Research signal:** HeyGen Avatar v3 ranked #1 for photorealism in 2026 — full-body motion capture, timing-aware gestures, accurate lip-sync across 175+ languages. ElevenLabs provides the voice layer. Arcads uses this pattern but without voice cloning or brand voice persistence (Marketer Milk, 2026).
 
 ---
 
@@ -442,7 +442,7 @@ EPIC 8 — Platform & Administration
 **so that** I don't need separate accounts for each client.
 
 **Acceptance Criteria:**
-- [ ] Workspace supports multiple brand kits: Starter = 1, Growth = 3, Scale = 10, Enterprise = unlimited
+- [ ] Workspace supports multiple brand kits: Starter = 1, Growth = 3, Agency = unlimited
 - [ ] Brand switcher in top navigation: click → select brand → all context switches to that brand
 - [ ] Each brand has isolated: briefs, assets, brand kit, avatar/voice defaults, performance data (V2)
 - [ ] Brand kit fields: name, logo, primary/secondary hex colors, fonts, intro/outro bumper, tone notes
@@ -479,7 +479,7 @@ EPIC 8 — Platform & Administration
 **Acceptance Criteria:**
 - [ ] Roles: Admin (full access), Creator (generate + export, no billing/settings), Reviewer (view + comment, no generation)
 - [ ] Invite by email; invite link expires in 48 hours
-- [ ] Scale tier: unlimited seats; Growth tier: up to 5 seats; Starter: 1 seat
+- [ ] Agency tier: unlimited seats; Growth tier: up to 5 seats; Starter: 1 seat
 - [ ] Admin can remove or change role of any team member
 - [ ] Activity log: shows who generated what and when (Admin view)
 

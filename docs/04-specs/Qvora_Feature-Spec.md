@@ -18,7 +18,7 @@ This document specifies functional requirements, acceptance criteria, edge cases
 | [FS-2] Creative Strategy Engine (Qvora Brief) | BRIEF | ✅ |
 | [FS-3] Video Generation Engine (Qvora Studio) | GEN | ✅ |
 | [FS-3a] Text → Video Generation | T2V | ✅ |
-| [FS-3b] Image → Video Generation | I2V | ✅ |
+| [FS-3b] Image → Video Generation | I2V | V2 |
 | [FS-3c] Voice → Video Generation | V2V | ✅ |
 | [FS-4] Voiceover & Caption Engine | VOICE | ✅ |
 | [FS-5] Brand Kit System | BRAND | ✅ |
@@ -137,7 +137,7 @@ User:   Product data: {extracted_product_json}
 Output: Structured JSON matching brief schema
 ```
 
-- Model: GPT-4o class or equivalent (Claude Opus-class for quality; flash/haiku-class for iteration)
+- Model: GPT-4o (product extraction / structured output); Claude Sonnet 4.6 (angle + hook generation)
 - Temperature: 0.7 for initial generation; 0.9 for regeneration variants
 - Output format: JSON strict mode / structured outputs
 
@@ -164,10 +164,10 @@ Output: Structured JSON matching brief schema
 | GEN-01 | Support 3 output formats: UGC-style, Product Demo, Text-Motion | P0 |
 | GEN-02 | Support 3 aspect ratios: 9:16, 1:1, 16:9 | P0 |
 | GEN-03 | Support 3 durations: 15s, 30s, 60s | P0 |
-| GEN-04 | Resolution: 1080p standard; 4K Enterprise tier | P0 / P2 |
+| GEN-04 | Resolution: 1080p standard; 4K Agency tier only | P0 / P2 |
 | GEN-05 | Generation latency: 60–180s per video at 1080p standard quality | P0 |
 | GEN-06 | "Generate All" from approved brief: creates one video per angle | P0 |
-| GEN-07 | Batch variant generation: Starter = max 3 variants/angle; Growth = max 10; Scale = unlimited | P0 |
+| GEN-07 | Batch variant generation: Starter = max 3 variants/angle; Growth = max 10; Agency = unlimited | P0 |
 | GEN-08 | Brand kit auto-applied: logo watermark, color overlay, intro/outro bumper | P0 |
 | GEN-09 | Platform compliance auto-check: safe zone margins, text size, duration limit per platform | P0 |
 | GEN-10 | Generation queue: async processing with in-app + email notification on completion | P0 |
@@ -243,7 +243,7 @@ Output: Structured JSON matching brief schema
 - Starter tier: 20 ads/mo = max $10 COGS at $0.50/video
 - Growth tier: 100 ads/mo = max $50 COGS at $0.50/video
 - **Constraint:** Average video generation COGS must stay ≤ $0.40 at standard quality for unit economics to work
-- **API layer:** FAL.AI unified API for T2V/I2V (access to Veo 3.1, Kling 3.0, Runway Gen-4.5, Sora 2 at $0.05–$0.40/sec); HeyGen Avatar IV API for V2V lip-sync
+- **API layer:** FAL.AI unified API for T2V/I2V (access to Veo 3.1, Kling 3.0, Runway Gen-4.5, Sora 2 at $0.05–$0.40/sec); HeyGen Avatar v3 API for V2V lip-sync
 
 ### Edge Cases
 
@@ -256,7 +256,7 @@ Output: Structured JSON matching brief schema
 | Platform compliance failure (safe zone) | Auto-recompose with adjusted layout; flag to user if unresolvable |
 
 ### Out of Scope (V1)
-- Custom avatar upload (Enterprise roadmap)
+- Custom avatar upload (V2 roadmap)
 - Real actor video (human UGC marketplace)
 - Motion graphics / After Effects template rendering
 - Audio music selection (auto-assigned from licensed library)
@@ -275,7 +275,7 @@ Output: Structured JSON matching brief schema
 | T2V-02 | Model selector: Auto / Veo 3.1 / Kling 3.0 / Runway Gen-4.5 / Sora 2 | P0 |
 | T2V-03 | Auto mode: Qvora selects model based on prompt type (cinematic → Veo; long-form → Kling; control → Runway) | P1 |
 | T2V-04 | Duration options: 5s, 10s, 15s, 30s (model-dependent ceiling) | P0 |
-| T2V-05 | Resolution: 1080p standard; 4K for Veo 3.1 (Enterprise tier) | P0 |
+| T2V-05 | Resolution: 1080p standard; 4K for Veo 3.1 (Agency tier only) | P0 |
 | T2V-06 | Native audio generation: enabled for Veo 3.1 (ambient sound, SFX) | P1 |
 | T2V-07 | Generation latency: 30–120s depending on model and duration | P0 |
 | T2V-08 | Style modifiers: Cinematic / UGC / Product / Abstract / Lifestyle | P1 |
@@ -310,7 +310,9 @@ User selects "Auto" →
 
 ---
 
-## [FS-3b] Image → Video Generation
+## [FS-3b] Image → Video Generation — **V2 (Post-Launch)**
+
+> **Scope note:** I2V is deferred to V2. The FAL.AI pipeline supports I2V models (Kling 3.0, Runway Gen-4), but the UI, product page auto-source integration, and motion controls are not built in V1. Schema tags (`generation_mode: image_to_video`) are reserved in the assets table for V2 forward compatibility.
 
 **Purpose:** Animate a static product image into a short video clip — subtle motion, zoom, parallax, or full scene animation. Converts product hero shots into scroll-stopping motion ads.
 
@@ -367,10 +369,10 @@ Hero Entrance:         "[Product] slides in from left, comes to rest, subtle hig
 | V2V-02 | Voice input mode B — ElevenLabs generated: select from voice library or use brand kit voice | P0 |
 | V2V-03 | Voice input mode C — Voice clone: upload 30s+ audio sample → clone voice for this brand | P1 (Growth+) |
 | V2V-04 | Avatar selection: same library as UGC-style (100+ avatars at launch) | P0 |
-| V2V-05 | Lip-sync engine: HeyGen Avatar IV API (most photorealistic; 175+ languages) | P0 |
+| V2V-05 | Lip-sync engine: HeyGen Avatar v3 API (most photorealistic; 175+ languages) | P0 |
 | V2V-06 | Lip-sync accuracy: frame-accurate to uploaded audio; natural micro-expressions and head movement | P0 |
 | V2V-07 | Language support: lip-sync works for all 175+ HeyGen-supported languages at launch | P0 |
-| V2V-08 | Duration: matches audio length; max 60s at Starter/Growth; max 5 min at Scale/Enterprise | P0 |
+| V2V-08 | Duration: matches audio length; max 60s at Starter/Growth; max 5 min at Agency | P0 |
 | V2V-09 | Background options: solid color / blurred lifestyle / product-matched (from brand kit) | P1 |
 | V2V-10 | Caption auto-generation: transcribed from uploaded audio, styled to brand kit | P0 |
 | V2V-11 | Generation latency: 60–180s for 30s lip-synced video | P0 |
@@ -387,7 +389,7 @@ Hero Entrance:         "[Product] slides in from left, comes to rest, subtle hig
   Trim silence at start/end
   Transcribe for captions (Whisper API or equivalent)
          ↓
-[Avatar Lip-Sync — HeyGen Avatar IV API]
+[Avatar Lip-Sync — HeyGen Avatar v3 API]
   Avatar selection
   Lip-sync rendering: audio → mouth + facial expressions + head motion
   Background composition
@@ -453,7 +455,7 @@ Hero Entrance:         "[Product] slides in from left, comes to rest, subtle hig
 | BRAND-04 | Font applied to: caption text, CTA text overlay, title cards | P0 |
 | BRAND-05 | Intro/outro bumper: pre-pended / appended to all generated videos for that brand | P0 |
 | BRAND-06 | Brand kit versioned: changes create a new version; assets generated with prior version retain original branding | P1 |
-| BRAND-07 | Multi-brand per workspace: Starter = 1, Growth = 3, Scale = 10, Enterprise = unlimited | P0 |
+| BRAND-07 | Multi-brand per workspace: Starter = 1, Growth = 3, Agency = unlimited | P0 |
 | BRAND-08 | Brand switcher: < 2 clicks to switch active brand context | P0 |
 
 ---
@@ -501,7 +503,7 @@ Example:
 | LIB-04 | Side-by-side comparison: select 2 assets → compare view | P1 |
 | LIB-05 | Asset actions: preview, download, duplicate, archive, delete | P0 |
 | LIB-06 | Bulk actions: select multiple → bulk export, bulk archive | P1 |
-| LIB-07 | Storage limit: Starter = 50 assets retained; Growth = 500; Scale/Enterprise = unlimited | P0 |
+| LIB-07 | Storage limit: Starter = 50 assets retained; Growth = 500; Agency = unlimited | P0 |
 | LIB-08 | Asset metadata visible on hover / detail panel: all tags, brief source, generation date | P0 |
 
 ---
@@ -514,7 +516,7 @@ Example:
 |---|---|---|
 | TEAM-01 | Roles: Admin, Creator, Reviewer | P0 |
 | TEAM-02 | Invite by email; invite link expires 48h | P0 |
-| TEAM-03 | Seat limits per tier: Starter = 1, Growth = 5, Scale = unlimited | P0 |
+| TEAM-03 | Seat limits per tier: Starter = 1, Growth = 5, Agency = unlimited | P0 |
 | TEAM-04 | Admin: full access including billing, settings, team management | P0 |
 | TEAM-05 | Creator: generate briefs and videos, export, manage own assets | P0 |
 | TEAM-06 | Reviewer: view briefs and assets, comment only | P0 |
@@ -568,7 +570,7 @@ Example:
 | PLAT-01 | Authentication: email/password + Google OAuth | P0 |
 | PLAT-02 | SSO via SAML 2.0: Enterprise tier | P2 |
 | PLAT-03 | Billing: Stripe-hosted; monthly and annual plans | P0 |
-| PLAT-04 | Plan tiers: Starter ($99), Growth ($149), Scale ($399), Enterprise (custom) | P0 |
+| PLAT-04 | Plan tiers: Starter ($99), Growth ($149), Agency ($399) | P0 |
 | PLAT-05 | Usage metering: ads generated per month; resets on billing date | P0 |
 | PLAT-06 | Usage alerts: 80% and 100% thresholds — in-app + email | P0 |
 | PLAT-07 | Overage: generation blocked at limit (no auto-upgrade); upgrade CTA shown | P0 |
