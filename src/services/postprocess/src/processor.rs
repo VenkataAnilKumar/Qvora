@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
@@ -205,7 +205,7 @@ impl ProcessorConfig {
     #[allow(unused_variables)]
     async fn run_transcode(
         &self,
-        input_path: &PathBuf,
+        input_path: &Path,
         watermark: bool,
         add_captions: bool,
         script: Option<&str>,
@@ -228,7 +228,7 @@ impl ProcessorConfig {
     #[cfg(feature = "ffmpeg")]
     async fn run_transcode_with_bindings(
         &self,
-        input_path: &PathBuf,
+        input_path: &Path,
         watermark: bool,
         add_captions: bool,
         script: Option<&str>,
@@ -246,7 +246,7 @@ impl ProcessorConfig {
         );
 
         tokio::task::spawn_blocking({
-            let input_path = input_path.clone();
+            let input_path = input_path.to_path_buf();
             let output_path = output_path.clone();
             move || transcode_video(&input_path, &output_path, &filter_spec)
         })
@@ -256,7 +256,7 @@ impl ProcessorConfig {
         Ok(output_path)
     }
 
-    async fn upload_to_r2(&self, local_path: &PathBuf, r2_key: &str) -> Result<String> {
+    async fn upload_to_r2(&self, local_path: &Path, r2_key: &str) -> Result<String> {
         let body = tokio::fs::read(local_path)
             .await
             .map_err(|e| anyhow!("Failed to read processed file: {}", e))?;
