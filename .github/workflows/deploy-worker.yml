@@ -22,6 +22,7 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy worker service
+        if: ${{ secrets.RAILWAY_TOKEN != '' }}
         working-directory: src/services/worker
         run: railway up --service qvora-worker --detach
         env:

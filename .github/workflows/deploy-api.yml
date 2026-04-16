@@ -22,6 +22,7 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy API service
+        if: ${{ secrets.RAILWAY_TOKEN != '' }}
         working-directory: src/services/api
         run: railway up --service qvora-api --detach
         env:
