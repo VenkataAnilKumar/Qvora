@@ -29,7 +29,7 @@ func NewGenerateTask(payload GeneratePayload) (*asynq.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal generate payload: %w", err)
 	}
-	return asynq.NewTask(TypeGenerate, data, asynq.Queue("default")), nil
+	return asynq.NewTask(TypeGenerate, data, asynq.Queue("default"), asynq.MaxRetry(MaxTaskRetryAttempts)), nil
 }
 
 // HandleGenerate submits async video generation job to FAL.AI

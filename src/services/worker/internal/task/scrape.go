@@ -38,7 +38,7 @@ func NewScrapeTask(payload ScrapePayload) (*asynq.Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal scrape payload: %w", err)
 	}
-	return asynq.NewTask(TypeScrape, data, asynq.Queue("default")), nil
+	return asynq.NewTask(TypeScrape, data, asynq.Queue("default"), asynq.MaxRetry(MaxTaskRetryAttempts)), nil
 }
 
 // HandleScrape processes the scrape task.

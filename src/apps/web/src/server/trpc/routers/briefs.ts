@@ -10,15 +10,48 @@ import {
   buildProductExtractionPrompt,
 } from "@qvora/prompts/angles-gen.prompt";
 import { createTRPCRouter, workspaceProcedure } from "../init";
+import { recordBriefTrace } from "../langfuse";
+
+const singleAngleSchema = z.object({
+  headline: z.string().min(3),
+  script: z.string().min(10),
+  cta: z.string().min(2),
+  voiceTone: z.string().min(2),
+});
+
+const singleHookSchema = z.object({
+  hook: z.string().min(3).max(140),
+});
 
 type ApiBrief = {
   brief_id: string;
-  scrape_job_id: string;
+  scrape_job_id?: string;
   org_id: string;
   product_url: string;
+  model?: string;
   template?: string;
   status: string;
   created_at?: string;
+};
+
+type ApiBriefAngle = {
+  angle: string;
+  headline: string;
+  script: string;
+  cta: string;
+  voice_tone?: string | null;
+};
+
+type ApiBriefDetail = {
+  brief_id: string;
+  org_id: string;
+  product_url: string;
+  model: string;
+  status: string;
+  angles: ApiBriefAngle[];
+  hooks: string[];
+  created_at?: string;
+  updated_at?: string;
 };
 
 type ScrapePayload = {
@@ -36,12 +69,14 @@ const briefModelSchema = z.enum(["gpt-4o", "gpt-4.1-mini"]);
 
 const GO_API_BASE_URL = process.env.GO_API_URL ?? "http://localhost:8080";
 
-const buildInternalHeaders = (ctx: {
+type InternalHeadersCtx = {
   userId: string;
   orgId: string;
   orgRole: string | null | undefined;
   headers: Headers;
-}) => {
+};
+
+const buildInternalHeaders = (ctx: InternalHeadersCtx) => {
   const headers = new Headers();
   headers.set("Content-Type", "application/json");
   headers.set("Accept", "application/json");
@@ -69,6 +104,67 @@ const parseApiError = async (response: Response) => {
   } catch {
     return "upstream_request_failed";
   }
+};
+
+const fetchBriefDetailFromApi = async (briefId: string, ctx: InternalHeadersCtx) => {
+  const response = await fetch(`${GO_API_BASE_URL}/api/v1/briefs/${encodeURIComponent(briefId)}`, {
+    method: "GET",
+    headers: buildInternalHeaders(ctx),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new TRPCError({
+      code: response.status === 404 ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR",
+      message: await parseApiError(response),
+    });
+  }
+
+  return (await response.json()) as ApiBriefDetail;
+};
+
+const persistBriefContentToApi = async (
+  briefId: string,
+  payload: {
+    angles: Array<{
+      angle: string;
+      headline: string;
+      script: string;
+      cta: string;
+      voice_tone?: string;
+    }>;
+    hooks: string[];
+  },
+  ctx: InternalHeadersCtx,
+) => {
+  const response = await fetch(
+    `${GO_API_BASE_URL}/api/v1/briefs/${encodeURIComponent(briefId)}/content`,
+    {
+      method: "PUT",
+      headers: buildInternalHeaders(ctx),
+      body: JSON.stringify(payload),
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new TRPCError({
+      code:
+        response.status === 404
+          ? "NOT_FOUND"
+          : response.status === 400
+            ? "BAD_REQUEST"
+            : "INTERNAL_SERVER_ERROR",
+      message: await parseApiError(response),
+    });
+  }
+
+  return (await response.json()) as {
+    brief_id: string;
+    updated_at: string;
+    angle_count: number;
+    hook_count: number;
+  };
 };
 
 export const briefsRouter = createTRPCRouter({
@@ -184,6 +280,20 @@ export const briefsRouter = createTRPCRouter({
         status: string;
       };
 
+      await recordBriefTrace({
+        traceName: "brief.create",
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        briefId: persisted.brief_id,
+        model: input.model,
+        input: { productUrl: input.productUrl, template: input.template, scraped },
+        output: { product, brief },
+        metadata: {
+          angleCount: brief.angles.length,
+          hookCount: brief.hooks.length,
+        },
+      });
+
       return {
         briefId: persisted.brief_id,
         scrapeJobId: persisted.brief_id,
@@ -234,6 +344,281 @@ export const briefsRouter = createTRPCRouter({
       })),
     };
   }),
+
+  get: workspaceProcedure
+    .input(
+      z.object({
+        briefId: z.string().uuid(),
+      }),
+    )
+    .query(async ({ input, ctx }) => {
+      const detail = await fetchBriefDetailFromApi(input.briefId, {
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        orgRole: ctx.orgRole,
+        headers: ctx.headers,
+      });
+
+      return {
+        briefId: detail.brief_id,
+        orgId: detail.org_id,
+        productUrl: detail.product_url,
+        model: detail.model,
+        status: detail.status,
+        angles: detail.angles.map((angle) => ({
+          angle: angle.angle,
+          headline: angle.headline,
+          script: angle.script,
+          cta: angle.cta,
+          voiceTone: angle.voice_tone ?? "",
+        })),
+        hooks: detail.hooks,
+        createdAt: detail.created_at ?? new Date().toISOString(),
+        updatedAt: detail.updated_at ?? new Date().toISOString(),
+      };
+    }),
+
+  updateContent: workspaceProcedure
+    .input(
+      z.object({
+        briefId: z.string().uuid(),
+        angles: z
+          .array(
+            z.object({
+              angle: z.string().min(1),
+              headline: z.string().min(1),
+              script: z.string().min(1),
+              cta: z.string().min(1),
+              voiceTone: z.string().optional(),
+            }),
+          )
+          .min(1),
+        hooks: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const updated = await persistBriefContentToApi(
+        input.briefId,
+        {
+          angles: input.angles.map((angle) => ({
+            angle: angle.angle,
+            headline: angle.headline,
+            script: angle.script,
+            cta: angle.cta,
+            voice_tone: angle.voiceTone,
+          })),
+          hooks: input.hooks,
+        },
+        {
+          userId: ctx.userId,
+          orgId: ctx.orgId,
+          orgRole: ctx.orgRole,
+          headers: ctx.headers,
+        },
+      );
+
+      await recordBriefTrace({
+        traceName: "brief.updateContent",
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        briefId: input.briefId,
+        model: "manual-edit",
+        input: { angles: input.angles, hooks: input.hooks },
+        output: updated,
+        metadata: {
+          angleCount: input.angles.length,
+          hookCount: input.hooks.length,
+        },
+      });
+
+      return {
+        briefId: updated.brief_id,
+        updatedAt: updated.updated_at,
+        angleCount: updated.angle_count,
+        hookCount: updated.hook_count,
+      };
+    }),
+
+  regenerateAngle: workspaceProcedure
+    .input(
+      z.object({
+        briefId: z.string().uuid(),
+        angleIndex: z.number().min(0),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const started = Date.now();
+      const detail = await fetchBriefDetailFromApi(input.briefId, {
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        orgRole: ctx.orgRole,
+        headers: ctx.headers,
+      });
+
+      if (input.angleIndex >= detail.angles.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "invalid_angle_index" });
+      }
+
+      const current = detail.angles[input.angleIndex];
+      if (!current) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "invalid_angle_index" });
+      }
+      const regenerated = await generateObject({
+        model: openai("gpt-4.1-mini"),
+        schema: singleAngleSchema,
+        prompt: [
+          "You are a performance creative strategist for short-form paid social ads.",
+          `Regenerate only this angle while preserving the angle type: ${current.angle}`,
+          `Product URL: ${detail.product_url}`,
+          `Current angle content: ${JSON.stringify(current)}`,
+          "Return concise, punchy copy suitable for 15-30 second ad scripts.",
+        ].join("\n"),
+      });
+
+      const nextAngles = detail.angles.map((angle, index) => {
+        if (index !== input.angleIndex) {
+          return {
+            angle: angle.angle,
+            headline: angle.headline,
+            script: angle.script,
+            cta: angle.cta,
+            voiceTone: angle.voice_tone ?? "",
+          };
+        }
+
+        return {
+          angle: angle.angle,
+          headline: regenerated.object.headline,
+          script: regenerated.object.script,
+          cta: regenerated.object.cta,
+          voiceTone: regenerated.object.voiceTone,
+        };
+      });
+
+      await persistBriefContentToApi(
+        input.briefId,
+        {
+          angles: nextAngles.map((angle) => ({
+            angle: angle.angle,
+            headline: angle.headline,
+            script: angle.script,
+            cta: angle.cta,
+            voice_tone: angle.voiceTone,
+          })),
+          hooks: detail.hooks,
+        },
+        {
+          userId: ctx.userId,
+          orgId: ctx.orgId,
+          orgRole: ctx.orgRole,
+          headers: ctx.headers,
+        },
+      );
+
+      const elapsedMs = Date.now() - started;
+      await recordBriefTrace({
+        traceName: "brief.regenerateAngle",
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        briefId: input.briefId,
+        model: "gpt-4.1-mini",
+        input: { angleIndex: input.angleIndex, current },
+        output: regenerated.object,
+        metadata: { elapsedMs },
+      });
+
+      const regeneratedAngle = nextAngles[input.angleIndex];
+      if (!regeneratedAngle) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "regenerated_angle_missing",
+        });
+      }
+
+      return {
+        angleIndex: input.angleIndex,
+        angle: regeneratedAngle,
+        elapsedMs,
+        under10Seconds: elapsedMs < 10_000,
+      };
+    }),
+
+  regenerateHook: workspaceProcedure
+    .input(
+      z.object({
+        briefId: z.string().uuid(),
+        hookIndex: z.number().min(0),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const started = Date.now();
+      const detail = await fetchBriefDetailFromApi(input.briefId, {
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        orgRole: ctx.orgRole,
+        headers: ctx.headers,
+      });
+
+      if (input.hookIndex >= detail.hooks.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "invalid_hook_index" });
+      }
+
+      const currentHook = detail.hooks[input.hookIndex];
+      const regenerated = await generateObject({
+        model: openai("gpt-4.1-mini"),
+        schema: singleHookSchema,
+        prompt: [
+          "Generate one high-performing ad hook line for short-form paid social.",
+          `Product URL: ${detail.product_url}`,
+          `Current hook: ${currentHook}`,
+          "Keep it concise and scroll-stopping.",
+        ].join("\n"),
+      });
+
+      const nextHooks = detail.hooks.map((hook, index) =>
+        index === input.hookIndex ? regenerated.object.hook : hook,
+      );
+
+      await persistBriefContentToApi(
+        input.briefId,
+        {
+          angles: detail.angles.map((angle) => ({
+            angle: angle.angle,
+            headline: angle.headline,
+            script: angle.script,
+            cta: angle.cta,
+            voice_tone: angle.voice_tone ?? undefined,
+          })),
+          hooks: nextHooks,
+        },
+        {
+          userId: ctx.userId,
+          orgId: ctx.orgId,
+          orgRole: ctx.orgRole,
+          headers: ctx.headers,
+        },
+      );
+
+      const elapsedMs = Date.now() - started;
+      await recordBriefTrace({
+        traceName: "brief.regenerateHook",
+        userId: ctx.userId,
+        orgId: ctx.orgId,
+        briefId: input.briefId,
+        model: "gpt-4.1-mini",
+        input: { hookIndex: input.hookIndex, currentHook },
+        output: regenerated.object,
+        metadata: { elapsedMs },
+      });
+
+      return {
+        hookIndex: input.hookIndex,
+        hook: regenerated.object.hook,
+        hooks: nextHooks,
+        elapsedMs,
+        under10Seconds: elapsedMs < 10_000,
+      };
+    }),
 
   batchGenerate: workspaceProcedure
     .input(

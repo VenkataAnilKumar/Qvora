@@ -96,7 +96,7 @@ func BatchGenerateVariants(c echo.Context) error {
 		return c.JSON(http.StatusPaymentRequired, map[string]string{"error": "variant_limit_exceeded"})
 	}
 
-	// Resolve brief's product URL from the originating job
+	// Resolve brief's product URL from the brief record.
 	parsedBriefID, parseErr := parseUUID(briefID)
 	if parseErr != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_brief_id"})
@@ -107,7 +107,7 @@ func BatchGenerateVariants(c echo.Context) error {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 
-	sourceJob, dbErr := q.GetJobByID(c.Request().Context(), db.GetJobByIDParams{
+	brief, dbErr := q.GetBriefByID(c.Request().Context(), db.GetBriefByIDParams{
 		ID:          parsedBriefID,
 		WorkspaceID: workspaceID,
 	})
@@ -123,7 +123,7 @@ func BatchGenerateVariants(c echo.Context) error {
 	for _, spec := range req.Specs {
 		job, createErr := q.CreateJob(c.Request().Context(), db.CreateJobParams{
 			WorkspaceID: workspaceID,
-			ProductUrl:  sourceJob.ProductUrl,
+			ProductUrl:  brief.ProductUrl,
 			Model:       spec.Model,
 		})
 		if createErr != nil {
@@ -201,7 +201,12 @@ func enqueueBatchGenerateTask(payload batchGenerateTaskPayload) error {
 		return fmt.Errorf("marshal generate task payload: %w", err)
 	}
 
-	t := asynq.NewTask(generateTaskType, data, asynq.Queue("default"))
+	t := asynq.NewTask(
+		generateTaskType,
+		data,
+		asynq.Queue("default"),
+		asynq.MaxRetry(3),
+	)
 	if _, err := client.Enqueue(t); err != nil {
 		return fmt.Errorf("enqueue generate task: %w", err)
 	}

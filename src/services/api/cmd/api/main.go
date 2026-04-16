@@ -72,6 +72,7 @@ func main() {
 	briefs.POST("", handler.CreateBrief)
 	briefs.GET("", handler.ListBriefs)
 	briefs.GET("/:id", handler.GetBrief)
+	briefs.PUT("/:id/content", handler.UpdateBriefContent)
 	briefs.POST("/:briefId/batch-generate", handler.BatchGenerateVariants)
 
 	// Workspaces

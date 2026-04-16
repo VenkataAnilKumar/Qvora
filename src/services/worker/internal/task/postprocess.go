@@ -37,7 +37,7 @@ func NewPostprocessTask(payload PostprocessPayload) (*asynq.Task, error) {
 		TypePostprocess,
 		data,
 		asynq.Queue("critical"),
-		asynq.MaxRetry(10),
+		asynq.MaxRetry(MaxTaskRetryAttempts),
 		asynq.Timeout(20*time.Minute),
 	), nil
 }

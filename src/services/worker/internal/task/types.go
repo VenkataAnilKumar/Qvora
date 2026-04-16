@@ -9,4 +9,5 @@ const (
 	TypeSignalMetricsSync            = "signal:metrics:sync"
 	TypeSignalGDPRCleanup            = "signal:gdpr:cleanup"
 	TypeJobReconcileStuck            = "jobs:reconcile:stuck"
+	MaxTaskRetryAttempts             = 3
 )

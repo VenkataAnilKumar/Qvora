@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,6 +12,14 @@ import (
 	"github.com/qvora/api/internal/db"
 	appmiddleware "github.com/qvora/api/internal/middleware"
 )
+
+type briefAngleInput struct {
+	Angle     string  `json:"angle"`
+	Headline  string  `json:"headline"`
+	Script    string  `json:"script"`
+	Cta       string  `json:"cta"`
+	VoiceTone *string `json:"voice_tone"`
+}
 
 // CreateBrief godoc
 // POST /api/v1/briefs
@@ -239,4 +248,135 @@ func GetBrief(c echo.Context) error {
 		"created_at":  tsTime(brief.CreatedAt),
 		"updated_at":  tsTime(brief.UpdatedAt),
 	})
+}
+
+// UpdateBriefContent godoc
+// PUT /api/v1/briefs/:id/content
+// Replaces all brief angles/hooks with the provided payload for inline edits.
+func UpdateBriefContent(c echo.Context) error {
+	claims := appmiddleware.GetClaims(c)
+	if claims == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	}
+
+	briefID := strings.TrimSpace(c.Param("id"))
+	parsedBriefID, err := parseUUID(briefID)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_brief_id"})
+	}
+
+	var req struct {
+		Angles []briefAngleInput `json:"angles"`
+		Hooks  []string          `json:"hooks"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+	}
+
+	if len(req.Angles) == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "angles_required"})
+	}
+
+	q, err := queries(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
+	}
+
+	workspaceID, err := workspaceIDForOrg(c.Request().Context(), q, claims.OrgID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_resolve_failed"})
+	}
+
+	brief, err := q.GetBriefByID(c.Request().Context(), db.GetBriefByIDParams{
+		ID:          parsedBriefID,
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "brief_not_found"})
+		}
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_lookup_failed"})
+	}
+
+	if err := replaceBriefContent(c.Request().Context(), brief.ID, req.Angles, req.Hooks); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_content_update_failed"})
+	}
+
+	updatedBrief, err := q.GetBriefByID(c.Request().Context(), db.GetBriefByIDParams{
+		ID:          parsedBriefID,
+		WorkspaceID: workspaceID,
+	})
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_lookup_failed"})
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"brief_id":     uuidString(updatedBrief.ID),
+		"org_id":       claims.OrgID,
+		"status":       updatedBrief.Status,
+		"angle_count":  len(req.Angles),
+		"hook_count":   len(req.Hooks),
+		"updated_at":   tsTime(updatedBrief.UpdatedAt),
+		"message":      "brief content updated",
+	})
+}
+
+func replaceBriefContent(ctx context.Context, briefID pgtype.UUID, angles []briefAngleInput, hooks []string) error {
+	tx, err := dbPool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err := tx.Exec(ctx, "DELETE FROM brief_angles WHERE brief_id = $1", briefID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM brief_hooks WHERE brief_id = $1", briefID); err != nil {
+		return err
+	}
+
+	for _, a := range angles {
+		angle := strings.TrimSpace(a.Angle)
+		if angle == "" {
+			continue
+		}
+		if _, err := tx.Exec(
+			ctx,
+			`INSERT INTO brief_angles (brief_id, angle, headline, script, cta, voice_tone)
+			 VALUES ($1, $2, $3, $4, $5, $6)`,
+			briefID,
+			angle,
+			strings.TrimSpace(a.Headline),
+			strings.TrimSpace(a.Script),
+			strings.TrimSpace(a.Cta),
+			a.VoiceTone,
+		); err != nil {
+			return err
+		}
+	}
+
+	for _, h := range hooks {
+		hook := strings.TrimSpace(h)
+		if hook == "" {
+			continue
+		}
+		if _, err := tx.Exec(
+			ctx,
+			`INSERT INTO brief_hooks (brief_id, hook) VALUES ($1, $2)`,
+			briefID,
+			hook,
+		); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(
+		ctx,
+		"UPDATE briefs SET updated_at = NOW() WHERE id = $1",
+		briefID,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }

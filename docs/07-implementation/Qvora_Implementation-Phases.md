@@ -1,5 +1,5 @@
 # Qvora — Implementation Phases
-**Version:** 2.0 | **Updated:** April 15, 2026 | **Status:** Phase 0, 1, 3 Complete — Phase 2 Partial (2 P0 items open)
+**Version:** 2.1 | **Updated:** April 16, 2026 | **Status:** Phase 0, 1, 2, 3 Complete
 
 ---
 
@@ -9,7 +9,7 @@
 |---|---|---|---|
 | Phase 0 | Foundation & Infrastructure | Week 1 | ✅ Complete |
 | Phase 1 | Core Data Layer | Week 2 | ✅ Complete |
-| Phase 2 | URL Ingestion & Brief Engine | Weeks 3–4 | ⚠️ Partial (BRIEF-08, BRIEF-09 open) |
+| Phase 2 | URL Ingestion & Brief Engine | Weeks 3–4 | ✅ Complete |
 | Phase 3 | Video Generation Pipeline | Weeks 5–7 | ✅ Complete |
 | Phase 4 | Brand Kit & Export | Week 8 | ⏳ Pending |
 | Phase 5 | Asset Library & Team | Week 9 | ⏳ Pending |
@@ -70,7 +70,7 @@
 
 ---
 
-## Phase 2 — URL Ingestion & Brief Engine ⚠️ Partial
+## Phase 2 — URL Ingestion & Brief Engine ✅ Complete
 
 **Goal:** URL in → structured brief out → persisted to DB.
 
@@ -90,9 +90,11 @@
   - Proxies to Go API `GET /api/v1/jobs/:id/stream`
 - Frontend routes: `(dashboard)/briefs/page.tsx`, `(dashboard)/briefs/[id]/page.tsx`
 
-### Pending (P0 — must complete before Phase 3 gate closes)
-- **BRIEF-08** — Inline brief editing with auto-save to DB
-- **BRIEF-09** — Per-angle / per-hook "Regenerate" button (`generateObject()` call scoped to single angle)
+### Completed Gate Closures
+- **BRIEF-08** — Inline brief editing persisted to DB via `PUT /api/v1/briefs/:id/content`
+- **BRIEF-09** — Per-angle and per-hook regenerate actions in brief detail UI
+- Single-angle regenerate latency path instrumented with elapsed-time return for <10s target tracking
+- Langfuse tracing integrated per brief create/update/regenerate action
 
 ### Key Decisions
 | Decision | Rationale |

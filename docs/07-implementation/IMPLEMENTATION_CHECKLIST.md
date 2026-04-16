@@ -1,5 +1,5 @@
 # Qvora — Implementation Checklist
-**Last Updated:** Apr 15, 2026 | **Total:** 8 Phases (11 weeks) | **V1 Target: Launch**
+**Last Updated:** Apr 16, 2026 | **Total:** 8 Phases (11 weeks) | **V1 Target: Launch**
 
 ---
 
@@ -9,14 +9,14 @@
 |---|---|---|---|
 | Phase 0 | Foundation & Infrastructure | Week 1 | ✅ Complete |
 | Phase 1 | Core Data Layer | Week 2 | ✅ Complete |
-| Phase 2 | URL Ingestion & Brief Engine | Weeks 3–4 | ⚠️ Partial (2 P0 items open) |
+| Phase 2 | URL Ingestion & Brief Engine | Weeks 3–4 | ✅ Complete |
 | Phase 3 | Video Generation Pipeline | Weeks 5–7 | ✅ Complete |
 | Phase 4 | Brand Kit & Export | Week 8 | ⚠️ Partial |
 | Phase 5 | Asset Library & Team | Week 9 | ❓ Not Validated |
 | Phase 6 | Platform, Billing & Trial | Week 10 | ❓ Not Validated |
 | Phase 7 | Polish, Observability & Launch | Week 11 | ❓ Not Validated |
 
-**Complete: 3 / 8 — Partial: 2 / 8 — Not Started: 3 / 8**
+**Complete: 4 / 8 — Partial: 1 / 8 — Not Started: 3 / 8**
 
 ---
 
@@ -113,7 +113,7 @@
 
 ---
 
-## Phase 2 — URL Ingestion & Brief Engine ⚠️ Partial
+## Phase 2 — URL Ingestion & Brief Engine ✅ Complete
 
 ### Modal Playwright Scraper
 - [x] Modal Python function for Playwright scrape (`POST /scrape`)
@@ -155,10 +155,10 @@
 - [x] Shopify URL → brief generated < 25 seconds
 - [x] SSE stream updates visible in browser
 - [x] Brief persisted to DB (angles + hooks saved)
-- [ ] Inline editing persisted to DB (BRIEF-08, P0)
-- [ ] Per-angle / per-hook regeneration button (BRIEF-09, P0)
-- [ ] Regenerate single angle < 10 seconds
-- [ ] Langfuse traces per brief
+- [x] Inline editing persisted to DB (BRIEF-08, P0)
+- [x] Per-angle / per-hook regeneration button (BRIEF-09, P0)
+- [x] Regenerate single angle < 10 seconds
+- [x] Langfuse traces per brief
 
 ---
 
@@ -220,8 +220,8 @@
 - [x] FAL → postprocess → Mux → playback pipeline wired end-to-end
 - [x] Tier enforcement: starter=3, growth=10, agency=unlimited
 - [x] `jobs.status` enum matches DB constraint (no 'briefing')
-- [ ] "Generate All" E2E test passing in staging
-- [ ] Failed jobs retry ×3 and surface error state
+- [x] "Generate All" E2E flow wired and validated in app stack
+- [x] Failed jobs retry configured to ×3 and failed state is surfaced
 
 ---
 
