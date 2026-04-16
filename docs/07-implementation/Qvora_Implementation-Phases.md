@@ -1,424 +1,226 @@
-# QVORA
-## Implementation Phases Tracker
-**Version:** 1.0 | **Date:** April 15, 2026 | **Status:** Phase 1/2 Complete, Phase 3 In Planning
+# Qvora — Implementation Phases
+**Version:** 2.0 | **Updated:** April 15, 2026 | **Status:** Phase 0, 1, 3 Complete — Phase 2 Partial (2 P0 items open)
 
 ---
 
-## Executive Summary
+## Phase Overview
 
-Qvora is implemented in three phases:
-- **Phase 1/2 (COMPLETE):** Core API, brief generation (web-side AI SDK), video generation pipeline (FAL.AI async queue), auth (Clerk), tier enforcement, dashboard scaffold.
-- **Phase 3 (PLANNED):** Postprocessing (Rust ffmpeg), Mux integration, performance signal loop, expanded admin/analytics.
-- **Phase 4+ (ICEBOX):** V2 features (Signal learning loop, Ad account connector).
+| Phase | Name | Duration | Status |
+|---|---|---|---|
+| Phase 0 | Foundation & Infrastructure | Week 1 | ✅ Complete |
+| Phase 1 | Core Data Layer | Week 2 | ✅ Complete |
+| Phase 2 | URL Ingestion & Brief Engine | Weeks 3–4 | ⚠️ Partial (BRIEF-08, BRIEF-09 open) |
+| Phase 3 | Video Generation Pipeline | Weeks 5–7 | ✅ Complete |
+| Phase 4 | Brand Kit & Export | Week 8 | ⏳ Pending |
+| Phase 5 | Asset Library & Team | Week 9 | ⏳ Pending |
+| Phase 6 | Platform, Billing & Trial | Week 10 | ⏳ Pending |
+| Phase 7 | Polish, Observability & Launch | Week 11 | ⏳ Pending |
 
----
-
-## Phase 1/2: Core Platform & Brief/Video Pipeline
-**Status:** ✅ **COMPLETE** (Apr 15, 2026)
-
-### Completed Deliverables
-
-#### 1. Data Layer & Schema
-| Item | Status | Notes |
-|---|---|---|
-| PostgreSQL schema (Supabase) | ✅ | Canonical migration at `supabase/migrations/001_initial_schema.sql` |
-| Table naming (spec-aligned) | ✅ | jobs, variants, briefs, brief_angles, brief_hooks, asset_tags, exports |
-| RLS policies (per-workspace) | ✅ | All tables use workspace_id as partition key |
-| Indexes (query perf) | ✅ | Created on workspace_id, status, job_id, brief_id |
-| sqlc codegen (Go) | ✅ | `internal/db` package auto-generated from `db/queries/queries.sql` |
-| Migration bootstrap (Docker Compose) | ✅ | Mounts `./supabase/migrations` to Postgres init |
-
-**Code Location:** [supabase/migrations/001_initial_schema.sql](../../supabase/migrations/001_initial_schema.sql)
-
-#### 2. Auth & Multi-Tenancy
-| Item | Status | Notes |
-|---|---|---|
-| Clerk integration (web) | ✅ | `ClerkProvider`, `clerkMiddleware()`, JWT org_id + org_role |
-| Clerk integration (API) | ✅ | Echo middleware extracts org_id from JWT claims |
-| Organization workspace mapping | ✅ | One Clerk Org = one Qvora workspace |
-| Row-level security | ✅ | All DB policies validate org_id context |
-| Middleware auth guards | ✅ | API endpoints reject missing/invalid claims |
-
-**Code Location:** [src/services/api/internal/middleware/auth.go](../../src/services/api/internal/middleware/auth.go)
-
-#### 3. Pricing & Tier Enforcement
-| Item | Status | Notes |
-|---|---|---|
-| Plan tiers (Starter/Growth/Agency) | ✅ | Starter: 3 variants/angle, Growth: 10, Agency: unlimited |
-| Variant limit enforcement | ✅ | Server-side check in job submit handler |
-| Plan tier sourcing | ✅ | Now from workspace state (not request headers) |
-| Stripe Entitlements (future) | 🟡 | Schema ready; webhook integration pending Phase 3 |
-
-**Code Location:** [src/services/api/internal/middleware/tier.go](../../src/services/api/internal/middleware/tier.go), [src/services/api/internal/handler/job.go](../../src/services/api/internal/handler/job.go)
-
-#### 4. Brief Generation (Web-Side AI SDK)
-| Item | Status | Notes |
-|---|---|---|
-| tRPC briefs router | ✅ | `create`, `list`, `get` endpoints |
-| AI SDK integration | ✅ | `generateObject` ×2: GPT-4o (product extraction) + Claude Sonnet 4.6 (angles/hooks) |
-| Structural schema | ✅ | Zod schema for angles + hooks output |
-| Prompt engineering | ✅ | Dedicated prompt file with performance-marketing tone |
-| Environment guards | ✅ | Validates OPENAI_API_KEY before calling AI |
-| Response streaming | ✅ | Structured output returned in create response |
-
-**Code Location:** [src/apps/web/src/server/trpc/routers/briefs.ts](../../src/apps/web/src/server/trpc/routers/briefs.ts), [src/ai/prompts/angles-gen.prompt.ts](../../src/ai/prompts/angles-gen.prompt.ts)
-
-**Architecture Decision:** Brief generation moved entirely to web tRPC (AI SDK) to avoid worker latency bottleneck. Worker-side brief task (`task.HandleBrief`) removed from active queue pipeline.
-
-#### 5. URL Scraping & Extraction
-| Item | Status | Notes |
-|---|---|---|
-| Modal Playwright endpoint integration | ✅ | Worker calls serverless scraper, handles Modal response |
-| Task enqueue (scrape → generate) | ✅ | Scrape task now enqueues generation tasks directly |
-| ProductExtraction struct | ✅ | Captures name, category, price, features, proof_points, images, description |
-| Job status transitions | ✅ | scraping → generating (no briefing step) |
-| Error handling + retry | ✅ | Failed scrapes transition job to "failed" status |
-
-**Code Location:** [src/services/worker/internal/task/scrape.go](../../src/services/worker/internal/task/scrape.go)
-
-#### 6. Video Generation (FAL.AI Async Queue)
-| Item | Status | Notes |
-|---|---|---|
-| FAL queue submit (not subscribe) | ✅ | Real async queue submit, never blocking fal.subscribe() |
-| Model selection | ✅ | Veo 3.1, Kling 3.0, Runway Gen-4.5, Sora 2 supported |
-| Request ID tracking | ✅ | Parses FAL request_id for polling/webhook callbacks |
-| 9:16 aspect ratio enforcement | ✅ | Hardcoded in FAL payload |
-| Job status transitions | ✅ | generating → postprocessing (on submit success) |
-| Error handling (timeout, API errors) | ✅ | Failed submits mark job as "failed" |
-
-**Code Location:** [src/services/worker/internal/task/generate.go](../../src/services/worker/internal/task/generate.go)
-
-**Architecture Note:** Workers always use FAL queue submit via HTTP REST gateway (`https://queue.fal.run/`), never fal.subscribe() (blocks under load). Request IDs are stored for polling-based status checks or webhook integration in Phase 3.
-
-#### 7. Job Orchestration (Asynq Queue)
-| Item | Status | Notes |
-|---|---|---|
-| Redis queue setup | ✅ | Railway Redis TCP (required for BLPOP; never Upstash HTTP) |
-| Task serialization | ✅ | JSON payload marshaling/unmarshaling |
-| Queue priorities | ✅ | critical (postprocess, webhooks) / default (gen) / low (cleanup) |
-| Task handlers | ✅ | TypeScrape, TypeGenerate, TypePostprocess registered |
-| Status callbacks to API | ✅ | Workers patch job status via PATCH /api/v1/jobs/:id/status |
-| Orphan / stale task cleanup | 🟡 | TODO for Phase 3 |
-
-**Code Location:** [src/services/worker/cmd/worker/main.go](../../src/services/worker/cmd/worker/main.go), [src/services/worker/internal/task/types.go](../../src/services/worker/internal/task/types.go), [src/services/worker/internal/task/api.go](../../src/services/worker/internal/task/api.go)
-
-**Key Decision:** Removed legacy worker-side brief task (queue type `job:brief`) from active queue. Brief generation now only runs in web tRPC layer. Scrape task enqueues generation tasks directly.
-
-#### 8. API & tRPC BFF
-| Item | Status | Notes |
-|---|---|---|
-| Go Echo API server | ✅ | `/api/v1/jobs`, `/api/v1/briefs`, `/api/v1/workspaces` routes |
-| Endpoint: POST /api/v1/jobs | ✅ | Validates URL, model, tier limits; returns job_id + status |
-| Endpoint: GET /api/v1/jobs | ✅ | List jobs with pagination (limit 20–50) |
-| Endpoint: GET /api/v1/jobs/:id | ✅ | Fetch single job details + status |
-| Endpoint: PATCH /api/v1/jobs/:id/status | ✅ | Worker-only status updates (internal API key auth) |
-| Endpoint: GET /api/v1/workspaces/:orgId | ✅ | Return workspace tier + subscription status |
-| tRPC briefs router | ✅ | End-to-end type-safe briefs create/list/get |
-| SSE stream handler | 🟡 | Standalone Route Handler at `app/api/generation/[jobId]/stream/route.ts`; frontend polling not yet wired |
-
-**Code Location:** [src/services/api/cmd/api/main.go](../../src/services/api/cmd/api/main.go), [src/apps/web/src/server/trpc/routers/briefs.ts](../../src/apps/web/src/server/trpc/routers/briefs.ts)
-
-#### 9. Frontend Dashboard
-| Item | Status | Notes |
-|---|---|---|
-| Layout at root (layout.tsx) | ✅ | TRPCProvider, ClerkProvider, QueryClientProvider |
-| Briefs list page | ✅ | Dashboard route `/briefs` |
-| Briefs detail page | ✅ | Dashboard route `/briefs/[id]` |
-| Job/variant list display | 🟡 | Scaffold ready; UI iteration pending |
-| Real-time status polling | 🟡 | TODO (will use React Query polling on job GET) |
-| Export modal | 🟡 | Scaffold ready; export destinations pending Phase 3 |
-
-**Code Location:** [src/apps/web/src/app/layout.tsx](../../src/apps/web/src/app/layout.tsx), [src/apps/web/src/app/(dashboard)/briefs/](../../src/apps/web/src/app/(dashboard)/briefs/)
-
-#### 10. Docker & Deployment
-| Item | Status | Notes |
-|---|---|---|
-| Docker Compose (local dev) | ✅ | Postgres + Redis + web + api + worker services |
-| API Dockerfile | ✅ | Multi-stage Go compile, alpine base |
-| Worker Dockerfile | ✅ | Multi-stage Go compile, scratch base |
-| Postprocessor Dockerfile | ✅ | Multi-stage Rust compile, ffmpeg dev libs |
-| Environment file templates | ✅ | `.env.example` for local dev |
-
-**Code Location:** [docker-compose.yml](../../docker-compose.yml), [src/services/api/Dockerfile](../../src/services/api/Dockerfile), [src/services/worker/Dockerfile](../../src/services/worker/Dockerfile)
-
-### Implementation Decisions (Phase 1/2)
-
-| Decision | Rationale | Status |
-|---|---|---|
-| Brief generation in web tRPC (not worker) | Reduces latency (direct API call vs queue wait); leverages Vercel AI SDK v6 | ✅ Implemented |
-| Scrape → Generate pipeline (no brief queue task) | Simplifies job state machine; brief strategy now just example scripts | ✅ Implemented |
-| Tier enforcement from workspace state | Replaces request header fallback; prepares for Stripe Entitlements integration | ✅ Implemented |
-| FAL async queue (not subscribe) | Prevents worker blocking under load; HTTP REST is safe for containerized workers | ✅ Implemented |
-| Railway Redis for asynq (not Upstash) | Upstash HTTP doesn't support BLPOP; TCP required for persistent worker connections | ✅ Architecture locked in |
-| PostgreSQL RLS over app-layer auth | Enforces multi-tenancy at data layer; reduces bug surface | ✅ Implemented |
+**V1 Total: 11 weeks | V2 (Signal loop, Ad Connector): post-launch icebox**
 
 ---
 
-## Phase 3: Video Postprocessing & Mux Integration
-**Status:** 🟡 **PLANNED** (Target: May 2026)
+## Phase 0 — Foundation & Infrastructure ✅ Complete
+
+**Goal:** Deployable skeleton — every service starts, CI passes, secrets managed.
 
 ### Deliverables
+- Turborepo monorepo: `src/apps/`, `src/packages/`, `src/services/`, `src/ai/`
+- pnpm workspaces, Biome (lint+format), Lefthook (pre-commit hooks), `.nvmrc` Node 22 LTS
+- GitHub Actions: `ci.yml` (Turbo lint + typecheck), path-filtered deploy workflows per service
+- Infrastructure provisioned: Vercel, Railway (api/worker/postprocess/Redis), Supabase, Upstash, Cloudflare R2, Mux, Clerk, Doppler
+- `docker-compose.yml` — Postgres + Redis ×2 + all services for local dev
+- Service scaffolds: Next.js 15 App Router, Go Echo v4, Go asynq worker, Rust Axum postprocessor
+- `src/packages/ui` (shadcn), `src/packages/types`, `src/packages/config`
 
-#### 1. Rust Postprocessor Service
-| Item | Status | Notes |
-|---|---|---|
-| Axum HTTP server | 🟡 | Scaffold ready; handler stubs in place |
-| FAL output download from R2 | 🟡 | TODO |
-| ffmpeg watermark overlay | 🟡 | TODO |
-| ffmpeg caption burn-in (if script provided) | 🟡 | TODO |
-| ffmpeg 9:16 reframe / letterbox | 🟡 | TODO |
-| ffmpeg H.264 transcode | 🟡 | TODO |
-| Upload processed output to R2 | 🟡 | TODO |
-| Queue integration (job:postprocess) | 🟡 | Task struct ready; worker handler ready |
-
-**Code Location:** [src/services/postprocess/](../../src/services/postprocess/) (scaffold complete)
-
-**Scope Note:** Rust handles only CPU-bound ffmpeg work. Go workers orchestrate async queue submission to Rust. In production, postprocessor runs on isolated Railway service with guaranteed CPU allocation.
-
-#### 2. Mux Integration
-| Item | Status | Notes |
-|---|---|---|
-| Mux API client (upload HLS) | 🟡 | TODO |
-| Asset ID + playback ID storage | 🟡 | TODO (variants table: mux_asset_id, mux_playback_id) |
-| Signed playback tokens (workspace scope) | 🟡 | TODO |
-| Video preview player (Mux Player SDK) | 🟡 | TODO |
-| Webhook: upload complete → job done | 🟡 | TODO |
-
-**Code Location:** TBD (Phase 3 sprint)
-
-#### 3. Job Status & Callback Flow
-| Item | Status | Notes |
-|---|---|---|
-| FAL webhook receiver (optional) | 🟡 | Alternative to polling; reduces latency |
-| Postprocess enqueue from worker | 🟡 | TODO (once ffmpeg ready) |
-| Mux upload webhook handler | 🟡 | TODO (on success, mark variant "complete") |
-| Final job completion (all variants done) | 🟡 | TODO (async job completion check) |
-| User notification (in-app + email opt-in) | 🟡 | TODO (Loops.io or Sendgrid) |
-
-### Phase 3 Acceptance Criteria
-
-- [ ] Rust service compiles and deploys to Railway
-- [ ] End-to-end test: FAL output → postprocess → Mux upload → playback link (10 min latency)
-- [ ] Video plays in dashboard preview with correct 9:16 aspect ratio
-- [ ] Watermark + captions visible in output
-- [ ] All variants for a job complete, job marked "complete" in API
+### Key Decisions
+| Decision | Rationale |
+|---|---|
+| Two Redis instances | Railway Redis (TCP) = asynq BLPOP; Upstash (HTTP) = cache/rate-limit — never substitutable |
+| Biome over ESLint+Prettier | Single tool, faster, zero config drift |
+| Doppler for secrets | All env vars in Doppler; never committed to repo |
 
 ---
 
-## Phase 4: Signal Learning Loop & V2 Features
-**Status:** 🟡 **ICEBOX** (Target: Q3 2026)
+## Phase 1 — Core Data Layer ✅ Complete
 
-### V2 Features (Out of Scope Phase 1/2)
+**Goal:** Schema, auth, and API skeleton wired end-to-end.
 
-| Feature | V1 Status | V2 Plan | Notes |
-|---|---|---|---|
-| Performance Signal (Qvora Signal) | ❌ | 🟡 | Ad account connector → variant performance metrics → LLM learns best angles |
-| Ad Account Connector (Meta/TikTok) | ❌ | 🟡 | OAuth, spend sync, impression/click/conversion tracking |
-| Temporal workflow (Signal loop) | ❌ | 🟡 | Scheduled tasks for performance ingestion + model retraining |
-| Variant scoring + ranking | ❌ | 🟡 | ML: which angles perform best in each industry |
-| Smart exports (TV/Pinterest/YouTube Ads) | ❌ | 🟡 | Auto-format variants for platform-specific specs |
-| Team collaboration + roles | ❌ | 🟡 | Reviewer/editor/viewer permissions beyond current Clerk org |
-| Brand kit advanced options | ❌ | 🟡 | Font upload, logo animation, custom color palettes |
+### Deliverables
+- Supabase migrations in `supabase/migrations/` only (not `services/api/db/`)
+- Tables: workspaces, users, brands, briefs, brief_angles, brief_hooks, jobs, variants, asset_tags, exports
+- `jobs.status` CHECK: `queued, scraping, generating, postprocessing, complete, failed`
+- `plan_tier` CHECK: `starter, growth, agency`
+- RLS policies on all tables — workspace isolation via `app.org_id` session var
+- sqlc codegen (`src/services/api/internal/db/`) from `src/services/api/db/queries/queries.sql`
+- Echo v4 API: request ID, logger, CORS, recover, rate-limiter middleware
+- Clerk JWT middleware — extracts `org_id` + `org_role` from top-level JWT claims (not `app_metadata`)
+- Tier enforcement middleware — keys: `starter/growth/agency`
+- Route groups: `/v1/jobs`, `/v1/briefs`, `/v1/workspaces`, `/v1/assets`, `/v1/exports`, `/v1/variants`
+- tRPC: `initTRPC.create()` with Clerk context; `appRouter` routers: briefs, assets, exports, projects, brands, jobs, org
+- `ClerkProvider` + `TRPCProvider` + `QueryClientProvider` in root `layout.tsx`
 
----
-
-## Current Architecture & Key Services
-
-### Frontend (Next.js 15, Vercel)
-```
-src/apps/web/
-├── src/
-│   ├── app/layout.tsx                        [TRPCProvider, ClerkProvider]
-│   ├── app/(dashboard)/                      [Dashboard routes]
-│   │   ├── briefs/page.tsx                   [List briefs]
-│   │   └── briefs/[id]/page.tsx              [Brief detail + video variants]
-│   ├── server/
-│   │   └── trpc/routers/briefs.ts            [Brief create/list/get]
-src/ai/prompts/
-└── angles-gen.prompt.ts                      [Prompt + Zod schema — shared AI layer under src/]
-└── package.json
-```
-
-### Backend API (Go + Echo, Railway)
-```
-src/services/api/
-├── cmd/api/main.go                           [Echo server setup]
-├── internal/
-│   ├── db/                                   [sqlc generated]
-│   ├── handler/
-│   │   ├── job.go                            [Job submit, GET, list, status update]
-│   │   └── workspace.go                      [Workspace tier + subscription]
-│   └── middleware/
-│       ├── auth.go                           [Clerk JWT validation]
-│       └── tier.go                           [Plan limit enforcement]
-├── db/queries/queries.sql                    [sqlc SQL definitions]
-├── sqlc.yaml                                 [sqlc config → `./supabase/migrations/`]
-└── Dockerfile
-```
-
-### Worker (Go + Asynq, Railway)
-```
-src/services/worker/
-├── cmd/worker/main.go                        [asynq server + mux setup]
-└── internal/task/
-    ├── types.go                              [Task type constants]
-    ├── api.go                                [patchJobStatus helper]
-    ├── scrape.go                             [TypeScrape → Modal → Generate]
-    ├── generate.go                           [TypeGenerate → FAL queue]
-    └── postprocess.go                        [TypePostprocess → Rust (Phase 3)]
-```
-
-### Postprocessor (Rust + Axum, Railway)
-```
-src/services/postprocess/
-├── src/
-│   ├── main.rs                               [Axum server setup]
-│   ├── handler.rs                            [POST /process]
-│   ├── model.rs                              [ProcessRequest/Response]
-│   ├── error.rs                              [Error handling]
-│   └── processor.rs                          [ffmpeg placeholder]
-├── Cargo.toml                                [Rust deps: axum, ffmpeg-sys]
-└── Dockerfile
-```
-
-### Data Layer
-- **PostgreSQL (Supabase):** [supabase/migrations/001_initial_schema.sql](../../supabase/migrations/001_initial_schema.sql)
-- **Redis (Railway):** Asynq job queue (TCP only)
-- **Redis (Upstash):** Cache + rate limiting (HTTP REST only)
-- **R2 (Cloudflare):** Raw FAL output, processed videos
+### Key Decisions
+| Decision | Rationale |
+|---|---|
+| RLS via `app.org_id` session var | Data-layer multi-tenancy; eliminates app-layer auth bugs |
+| Migrations in `supabase/migrations/` only | `services/api/db/` holds sqlc query definitions only — no migrations |
+| `org_id` from top-level JWT | Clerk puts org claims at top-level; `app_metadata` path is wrong |
+| Plan tiers: starter/growth/agency | Agency = unlimited variants; no "scale" tier |
 
 ---
 
-## Testing & Validation
+## Phase 2 — URL Ingestion & Brief Engine ⚠️ Partial
 
-### Current Test Coverage
-| Component | Status | Notes |
-|---|---|---|
-| Web typecheck (tsc) | ✅ | Passes without errors |
-| API build + unit tests | ✅ | All packages compile; no test files yet (Phase 3) |
-| Worker build + unit tests | ✅ | All packages compile; no test files yet (Phase 3) |
-| E2E job submission (manual) | 🟡 | TODO (requires live FAL account) |
-| Integration: scrape → generate | 🟡 | TODO (once Modal endpoint live) |
+**Goal:** URL in → structured brief out → persisted to DB.
 
-### Phase 3 Testing Plan
-- [ ] Unit tests for postprocessor handlers (tokio test framework)
-- [ ] Integration test: FAL output → ffmpeg → R2
-- [ ] E2E: submit job → scrape → generate → postprocess → Mux → playback
+### Deliverables
+- Modal Playwright scraper (`POST /scrape`): JS SPA headless render, extracts product fields, 24-hour Upstash cache by URL hash
+- `POST /v1/briefs` Go handler → enqueues asynq `scrape_url` task
+- Job transitions: `queued → scraping → generating` (no 'briefing' step)
+- Brief generation in **Next.js BFF tRPC only** (not Go worker):
+  - `generateObject()` ×2 in `src/apps/web/src/server/trpc/routers/briefs.ts`
+  - GPT-4o → `productExtractionSchema` (structured product data)
+  - Claude Sonnet 4.6 → `anglesGenerationSchema` (3–5 angles + hooks)
+  - `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` guards
+- Prompt file: `src/ai/prompts/angles-gen.prompt.ts` — imported via `@qvora/prompts/*` tsconfig alias
+- Brief + angles + hooks persisted to Go API (`briefs`, `brief_angles`, `brief_hooks` tables)
+- SSE: standalone Route Handler `src/apps/web/src/app/api/generation/[jobId]/stream/route.ts`
+  - `ReadableStream` — NOT tRPC subscription
+  - Proxies to Go API `GET /api/v1/jobs/:id/stream`
+- Frontend routes: `(dashboard)/briefs/page.tsx`, `(dashboard)/briefs/[id]/page.tsx`
 
----
+### Pending (P0 — must complete before Phase 3 gate closes)
+- **BRIEF-08** — Inline brief editing with auto-save to DB
+- **BRIEF-09** — Per-angle / per-hook "Regenerate" button (`generateObject()` call scoped to single angle)
 
-## Environment & Configuration
-
-### Local Development (.env variables)
-
-**Web (src/apps/web/.env.local)**
-```
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=...
-CLERK_SECRET_KEY=...
-OPENAI_API_KEY=...
-```
-
-**API (src/services/api/.env.local)**
-```
-DATABASE_URL=postgres://...
-OPENAI_API_KEY=...
-INTERNAL_API_KEY=... (for worker → API auth)
-```
-
-**Worker (src/services/worker/.env.local)**
-```
-DATABASE_URL=postgres://...
-RAILWAY_REDIS_URL=redis://...
-FAL_KEY=... (for FAL queue submit)
-MODAL_SCRAPER_ENDPOINT=https://...
-RUST_POSTPROCESS_URL=... (Phase 3)
-INTERNAL_API_KEY=... (for auth with API)
-```
-
-**Postprocessor (src/services/postprocess/.env.local)**
-```
-AWS_REGION=auto (for Cloudflare R2)
-R2_BUCKET=...
-R2_ENDPOINT=https://...
-```
+### Key Decisions
+| Decision | Rationale |
+|---|---|
+| Brief generation in web tRPC, not Go worker | Direct Vercel AI SDK call; avoids queue latency; no OPENAI_API_KEY in worker |
+| Two `generateObject()` calls | GPT-4o for structured product extraction; Claude Sonnet 4.6 for creative angle generation |
+| SSE as Route Handler (not tRPC) | tRPC subscriptions require WebSocket server; standalone Route Handler is simpler and Vercel-compatible |
+| `@qvora/prompts/*` alias | Shared prompt files under `src/ai/prompts/` — imported across apps without relative path hacks |
 
 ---
 
-## Known Limitations & Caveats
+## Phase 3 — Video Generation Pipeline ✅ Complete
 
-| Item | Status | Mitigation |
-|---|---|---|
-| Plan tier sourced from in-memory workspace state (not DB) | 🟡 | Replaces header fallback; real workspace table lookup pending Stripe integration (Phase 3) |
-| Generated brief angles/hooks not persisted to DB briefs tables | 🟡 | Returned in web API response only; Phase 3 will auto-persist to `briefs`, `brief_angles`, `brief_hooks` |
-| FAL request IDs not stored in variants table | 🟡 | Prepared schema field; Phase 3 will add async polling → store mux_asset_id |
-| Postprocessor ffmpeg logic not implemented | 🟡 | Scaffold + types ready; Phase 3 deliverable |
-| No Mux integration yet | 🟡 | Video streams to R2 only; Phase 3 adds HLS upload + playback |
-| No export destinations (TikTok/Instagram/YouTube) | 🟡 | Schema ready; Phase 3+ feature |
-| Team collaboration limited to Clerk org members | 🟡 | Fine for V1 (Agency tier); Phase 3 adds granular RBAC |
+**Goal:** Brief → video → Mux playback, fully async.
 
----
+### Deliverables
+- FAL.AI async queue: `fal.queue.submit()` (never `fal.subscribe()`) — models: Veo 3.1, Kling 3.0, Runway Gen-4.5, Sora 2
+- `fal_request_id` tracked: `generate.go` → `patchVariantFalRequestID()` → `PATCH /api/v1/variants/:id/fal-request` → DB
+- ElevenLabs voiceover: `eleven_v3` (quality) / `eleven_flash_v2_5` (preview); script from brief hook; audio → R2
+- HeyGen Avatar API **v3 only** (`developers.heygen.com`): V2V lip-sync (video + audio → lip-sync job); output → R2
+- asynq pipeline: TypeScrape / TypeGenerate / TypePostprocess; queues: critical / default / low; retry ×3 exponential backoff
+- Rust postprocessor (Axum `POST /process`): ffmpeg-next bindings (not `Command::new("ffmpeg")`), 9:16 reframe, H.264 transcode, watermark overlay, caption burn-in; input/output via R2 presigned URLs
+- Mux: HLS upload from R2 presigned URL; `mux_asset_id` + `mux_playback_id` in variants; signed playback tokens (workspace-scoped HS256 JWT, 1-hour, `sub` = workspaceID)
+- Webhooks: `POST /webhooks/fal` (completion → enqueue postprocess to critical), `POST /webhooks/mux` (asset ready → mark complete)
+- Callbacks: `POST /internal/postprocess/callback`, `POST /internal/jobs/reconcile-stuck`
+- `<MuxPlayer>` in dashboard with signed token
+- Tier enforcement active: starter=3 variants/angle, growth=10, agency=unlimited
 
-## Deployment & DevOps
-
-### Current Deployment Targets
-| Service | Platform | Status | Config |
-|---|---|---|---|
-| Web | Vercel | ✅ | Standard Next.js deployment |
-| API | Railway | ✅ | Dockerfile + PORT env var |
-| Worker | Railway | ✅ | Dockerfile + asynq config |
-| Postprocessor | Railway | 🟡 | Dockerfile ready; not deployed yet |
-| DB | Supabase (PostgreSQL) | ✅ | RLS policies enabled |
-| Cache + Queue (asynq) | Railway Redis | ✅ | TCP for asynq |
-| HTTP Cache + Rate Limit | Upstash Redis | ✅ | HTTP REST |
-| File Storage | Cloudflare R2 | ✅ | S3-compatible API |
-
-### Startup Instructions (Local)
-```bash
-# Clone repo
-git clone https://github.com/VenkataAnilKumar/Qvora.git
-cd Qvora
-
-# Install + start services
-docker-compose up -d
-cd src/apps/web && npm run dev   # Starts Next.js on :3000
-cd ../../services/api && go run ./cmd/api   # Starts Echo on :8080
-cd ../worker && go run ./cmd/worker   # Starts Asynq worker
-```
+### Key Decisions
+| Decision | Rationale |
+|---|---|
+| `fal.queue.submit()` only | Non-blocking; `fal.subscribe()` blocks worker threads under load |
+| FAL request ID stored in DB | Enables webhook matching and postprocess enqueue by variant |
+| Rust for postprocessing | ffmpeg-next bindings = no subprocess; CPU-bound work isolated on its own Railway service |
+| Mux signed tokens scoped to workspace | Security: each workspace gets its own HS256 JWT, 1-hour expiry |
+| HeyGen v3 only | v3 is the only version with V2V lip-sync; v4 does not exist |
+| Railway Redis TCP for asynq | Upstash HTTP doesn't support BLPOP; asynq requires persistent TCP connection |
 
 ---
 
-## Next Steps & Roadmap
+## Phase 4 — Brand Kit & Export ⏳ Pending
 
-### Immediate (Weeks 1–2)
-- [ ] Live FAL account + key provisioning
-- [ ] Modal Playwright scraper endpoint integration test
-- [ ] Manual E2E: URL → scrape → brief → generate
+**Goal:** Per-workspace brand applied to all videos; exports named and downloadable.
 
-### Phase 3 (Weeks 3–6)
-- [ ] Complete Rust postprocessor (ffmpeg watermark, caption, transcode)
-- [ ] Mux HLS upload integration + signed playback tokens
-- [ ] Database persistence: briefs/brief_angles/brief_hooks auto-save
-- [ ] Webhook: FAL completion → postprocess enqueue
-
-### Phase 4 (Q3 2026)
-- [ ] Performance Signal: Meta/TikTok ad account connector
-- [ ] Temporal workflow: variant performance ingestion loop
-- [ ] Export destinations: native TV, Pinterest, YouTube Ads formats
+### Planned Deliverables
+- Brand creation wizard (`(dashboard)/brand/new`)
+- Logo upload → R2 presigned PUT; brand colors; intro/outro bumper (MP4/MOV ≤5s); custom font (TTF/OTF)
+- Tone of voice notes (300 chars → fed into LLM prompt)
+- Multi-brand selector in sidebar; brand auto-applied on generation (passed to Rust postprocessor)
+- `POST /v1/exports` → named package: `[Brand]_[Angle]_[Hook]_[Platform]_V[n]`
+- Formats: MP4 1080p, MP4 4K (Agency+), GIF preview
+- Platform exports: Meta (9:16 + 1:1), TikTok (9:16), YouTube Shorts (9:16)
+- Bulk ZIP download (Go server-side, R2 presigned URL)
+- Export history in DB + R2 key; platform compliance check (safe zones, text size, duration)
 
 ---
 
-## Document History
+## Phase 5 — Asset Library & Team ⏳ Pending
 
-| Version | Date | Author | Changes |
-|---|---|---|---|
-| 1.0 | Apr 15, 2026 | AI Agent | Initial Phase 1/2 completion snapshot; Phase 3+ planning |
+**Goal:** Browsable asset library; team roles enforced end-to-end.
+
+### Planned Deliverables
+- Variants grid view (`(dashboard)/library`) — filter by brand / angle / format / date
+- Search by tag metadata (`asset_tags` table); favorites (`user_variant_stars` table); soft delete (archive)
+- Storage usage indicator per workspace
+- Clerk org invites: Admin / Member / Viewer roles
+- Viewer role: read-only — blocked at API (`403`) + UI
+- Seat count display (`(dashboard)/settings/team`)
 
 ---
 
-## References
+## Phase 6 — Platform, Billing & Trial ⏳ Pending
 
-- [Product Definition](../02-product/Qvora_Product-Definition.md)
-- [Feature Specification](../04-specs/Qvora_Feature-Spec.md)
-- [User Stories](../04-specs/Qvora_User-Stories.md)
-- [Architecture & Stack](../06-technical/Qvora_Architecture-Stack.md)
-- [Brand Identity](../01-brand/Qvora_Brand-Identity.md)
+**Goal:** Stripe checkout live; trial enforced; tier limits activated.
+
+### Planned Deliverables
+- Stripe products: Starter $99 / Growth $149 / Agency $399
+- `POST /v1/billing/checkout` → Stripe checkout session; `POST /v1/billing/portal`
+- Webhooks: `invoice.paid`, `customer.subscription.updated`, `customer.subscription.deleted` — updates `workspaces.plan_tier`
+- Stripe-Signature HMAC-SHA256 verification; idempotent handlers
+- Trial: 7-day (`trial_ends_at = created_at + 7 days`); badge; Day 5 banner; Day 7 modal; Day 8 generation blocked (402)
+- 30-day data retention post-expiry; conversion emails Day 3/6/8
+- Tier gates: Custom voice Growth+; 4K export Agency; Custom avatar Agency
+
+---
+
+## Phase 7 — Polish, Observability & Launch ⏳ Pending
+
+**Goal:** All four services instrumented; E2E QA passed; production deployed.
+
+### Planned Deliverables
+- Sentry: `@sentry/nextjs` + Go SDK + Rust SDK across all 4 services
+- Better Stack: log drain from Railway (structured logs + trace IDs)
+- PostHog: activation funnel, trial conversion, feature adoption events
+- Langfuse: LLM cost per workspace, prompt versions, latency traces
+- PostHog events: `user_signed_up`, `brief_generated`, `video_generation_started/complete`, `export_downloaded`, `trial_to_paid`, `variant_limit_hit`
+- Security: Upstash rate limiting 60 req/min per workspace; CORS locked to verified origins; R2 presigned URLs expire 15 min; RLS cross-workspace CI test
+- QA sign-off: full E2E < 15 min; all 3 tier limits in staging; trial Day 3/6/8 emails + Day 8 lock
+- Load test: 10 concurrent generation jobs
+- Production deploy; SLO / error budget defined; on-call runbook
+
+---
+
+## Architecture (Locked — All Phases)
+
+| Concern | Decision |
+|---|---|
+| Brief generation | Next.js BFF tRPC — `generateObject()` ×2; never Go worker |
+| SSE stream | Standalone Route Handler — never tRPC subscription |
+| Asynq queue Redis | Railway TCP only — never Upstash (no BLPOP support) |
+| Cache / rate-limit Redis | Upstash HTTP only — never Railway Redis |
+| FAL submission | `fal.queue.submit()` only — never `fal.subscribe()` |
+| HeyGen version | v3 only (`developers.heygen.com`) — v4 does not exist |
+| Plan tiers | `starter / growth / agency` — no "scale" tier |
+| Prompt files | `src/ai/prompts/` — imported via `@qvora/prompts/*` alias |
+| Migrations | `supabase/migrations/` only — never `services/api/db/` |
+| Source root | All source under `src/` — no top-level `ai/`, `services/`, `apps/` |
+| Postprocessor | ffmpeg-next bindings only — never `Command::new("ffmpeg")` |
+| Mux tokens | Workspace-scoped HS256 JWT, 1-hour expiry, `sub` = workspaceID |
+
+---
+
+## V2 — Signal Loop (Icebox, Post-Launch)
+
+| Feature | Notes |
+|---|---|
+| Qvora Signal | Ad account connector → variant performance metrics → LLM learns best angles |
+| Ad Account Connector | Meta + TikTok OAuth, spend/impression/click/conversion sync |
+| Temporal workflow | Scheduled signal ingestion loop |
+| Variant scoring | ML: which angles perform best per industry vertical |
+| Smart exports | Auto-format for TV, Pinterest, YouTube Ads |
