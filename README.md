@@ -219,3 +219,5 @@ cd src/services/worker && go build ./...
 This repository is private and internal. All planning, architecture, and implementation details are confidential. Do not publish externally without explicit approval.
 
 **License:** Proprietary. All rights reserved.
+
+- Badge test: YOLO flow (2026-04-17)
