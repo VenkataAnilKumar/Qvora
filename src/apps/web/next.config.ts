@@ -38,6 +38,23 @@ const nextConfig: NextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=()",
           },
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://clerk.qvora.com https://*.clerk.accounts.dev",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob: https://assets.qvora.com https://image.mux.com",
+              "media-src 'self' blob: https://stream.mux.com",
+              "connect-src 'self' https://api.qvora.com https://*.clerk.accounts.dev https://clerk.qvora.com",
+              "font-src 'self' data:",
+              "frame-ancestors 'none'",
+            ].join("; "),
+          },
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=31536000; includeSubDomains",
+          },
         ],
       },
     ];
