@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
@@ -25,7 +26,7 @@ func RateLimiter() echo.MiddlewareFunc {
 
 			pipe := rdb.Pipeline()
 			incr := pipe.Incr(ctx, key)
-			pipe.Expire(ctx, key, 60*1_000_000_000) // 60 seconds
+			pipe.Expire(ctx, key, 60*time.Second)
 			if _, err := pipe.Exec(ctx); err != nil {
 				// Redis unavailable — fail open (don't block requests)
 				return next(c)
@@ -33,7 +34,7 @@ func RateLimiter() echo.MiddlewareFunc {
 
 			count := incr.Val()
 			c.Response().Header().Set("X-RateLimit-Limit", "60")
-			c.Response().Header().Set("X-RateLimit-Remaining", strconv.FormatInt(max(0, 60-count), 10))
+			c.Response().Header().Set("X-RateLimit-Remaining", strconv.FormatInt(max(int64(0), 60-count), 10))
 
 			if count > 60 {
 				return c.JSON(http.StatusTooManyRequests, map[string]string{"error": "rate_limit_exceeded"})
@@ -52,9 +53,3 @@ func rateLimitKey(c echo.Context) string {
 	return "rl:ip:" + c.RealIP()
 }
 
-func max(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
-}
