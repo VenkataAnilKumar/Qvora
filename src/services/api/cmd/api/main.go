@@ -61,35 +61,35 @@ func main() {
 
 	// Jobs
 	jobs := v1.Group("/jobs", appmiddleware.RequireWorkspace())
-	jobs.POST("", handler.SubmitJob, appmiddleware.Idempotency(true))
+	jobs.POST("", handler.SubmitJob, appmiddleware.Idempotency(true), appmiddleware.RequireWriteAccess())
 	jobs.GET("", handler.ListJobs)
 	jobs.GET("/:id", handler.GetJob)
-	jobs.PATCH("/:id/status", handler.UpdateJobStatus)
+	jobs.PATCH("/:id/status", handler.UpdateJobStatus, appmiddleware.RequireWriteAccess())
 	jobs.GET("/:id/stream", handler.StreamJob)
 
 	// Briefs
 	briefs := v1.Group("/briefs", appmiddleware.RequireWorkspace())
-	briefs.POST("", handler.CreateBrief, appmiddleware.Idempotency(true))
+	briefs.POST("", handler.CreateBrief, appmiddleware.Idempotency(true), appmiddleware.RequireWriteAccess())
 	briefs.GET("", handler.ListBriefs)
 	briefs.GET("/:id", handler.GetBrief)
-	briefs.PUT("/:id/content", handler.UpdateBriefContent)
-	briefs.POST("/:briefId/batch-generate", handler.BatchGenerateVariants)
+	briefs.PUT("/:id/content", handler.UpdateBriefContent, appmiddleware.RequireWriteAccess())
+	briefs.POST("/:briefId/batch-generate", handler.BatchGenerateVariants, appmiddleware.RequireWriteAccess())
 
 	// Workspaces
 	workspaces := v1.Group("/workspaces", appmiddleware.RequireWorkspace())
 	workspaces.GET("/:orgId", handler.GetWorkspace)
 	workspaces.GET("/:orgId/brand-kit", handler.GetBrandKit)
 	workspaces.GET("/:orgId/usage", handler.GetWorkspaceUsage)
-	workspaces.PUT("/:orgId/brand-kit", handler.UpsertBrandKit)
-	workspaces.PATCH("/:orgId/usage/reset", handler.ResetWorkspaceUsage)
-	workspaces.PATCH("/:orgId/memberships/sync", handler.SyncWorkspaceMembership)
-	workspaces.PATCH("/:orgId/lifecycle", handler.UpdateWorkspaceLifecycle)
-	workspaces.PATCH("/:orgId/subscription", handler.UpdateWorkspaceSubscription)
+	workspaces.PUT("/:orgId/brand-kit", handler.UpsertBrandKit, appmiddleware.RequireWriteAccess())
+	workspaces.PATCH("/:orgId/usage/reset", handler.ResetWorkspaceUsage, appmiddleware.RequireAdmin())
+	workspaces.PATCH("/:orgId/memberships/sync", handler.SyncWorkspaceMembership, appmiddleware.RequireAdmin())
+	workspaces.PATCH("/:orgId/lifecycle", handler.UpdateWorkspaceLifecycle, appmiddleware.RequireAdmin())
+	workspaces.PATCH("/:orgId/subscription", handler.UpdateWorkspaceSubscription, appmiddleware.RequireAdmin())
 
 	// Assets
 	assets := v1.Group("/assets", appmiddleware.RequireWorkspace())
 	assets.GET("", handler.ListAssets)
-	assets.DELETE("/:id", handler.DeleteAsset)
+	assets.DELETE("/:id", handler.DeleteAsset, appmiddleware.RequireWriteAccess())
 
 	// Exports
 	exports := v1.Group("/exports", appmiddleware.RequireWorkspace())
@@ -98,15 +98,15 @@ func main() {
 	// Signal (Phase 2 kickoff)
 	signalRoutes := v1.Group("/signal", appmiddleware.RequireWorkspace())
 	signalRoutes.GET("/connections", handler.ListSignalConnections)
-	signalRoutes.PUT("/connections/:platform", handler.UpsertSignalConnection)
-	signalRoutes.PATCH("/connections/:platform/:accountId/health", handler.PatchSignalConnectionHealth)
+	signalRoutes.PUT("/connections/:platform", handler.UpsertSignalConnection, appmiddleware.RequireWriteAccess())
+	signalRoutes.PATCH("/connections/:platform/:accountId/health", handler.PatchSignalConnectionHealth, appmiddleware.RequireWriteAccess())
 	signalRoutes.GET("/oauth/:platform/initiate", handler.InitiateSignalOAuth)
 	signalRoutes.GET("/dashboard", handler.GetSignalDashboard)
-	signalRoutes.POST("/metrics", handler.UpsertSignalMetrics)
+	signalRoutes.POST("/metrics", handler.UpsertSignalMetrics, appmiddleware.RequireWriteAccess())
 	signalRoutes.GET("/fatigue", handler.DetectSignalFatigue)
 	signalRoutes.GET("/fatigue/events", handler.ListSignalFatigueEvents)
 	signalRoutes.GET("/recommendations", handler.GetSignalRecommendations)
-	signalRoutes.POST("/recommendations/feedback", handler.CreateSignalRecommendationFeedback)
+	signalRoutes.POST("/recommendations/feedback", handler.CreateSignalRecommendationFeedback, appmiddleware.RequireWriteAccess())
 	signalRoutes.GET("/recommendations/feedback", handler.ListSignalRecommendationFeedbackByAngle)
 	v1.GET("/signal/oauth/:platform/callback", handler.HandleSignalOAuthCallback)
 	v1.POST("/internal/signal/metrics/sync-all", handler.SyncSignalMetricsAll)
@@ -120,8 +120,8 @@ func main() {
 	// Variants
 	variants := v1.Group("/variants", appmiddleware.RequireWorkspace())
 	variants.GET("/:id/playback-url", handler.GetVariantPlaybackURL)
-	variants.PATCH("/:id/fal-request", handler.UpdateVariantFalRequest)
-	variants.PATCH("/:id/avatar-job", handler.HandlePatchAvatarJob)
+	variants.PATCH("/:id/fal-request", handler.UpdateVariantFalRequest, appmiddleware.RequireWriteAccess())
+	variants.PATCH("/:id/avatar-job", handler.HandlePatchAvatarJob, appmiddleware.RequireWriteAccess())
 
 	// Webhooks (no auth middleware — verified by signature)
 	webhooks := e.Group("/webhooks")
