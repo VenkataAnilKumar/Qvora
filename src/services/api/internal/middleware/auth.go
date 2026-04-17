@@ -70,11 +70,13 @@ func setClaimsFromInternalHeaders(c echo.Context) bool {
 	}
 
 	requiredKey := strings.TrimSpace(os.Getenv("INTERNAL_API_KEY"))
+	if requiredKey == "" {
+		// If INTERNAL_API_KEY is not configured, disable internal header auth entirely.
+		return false
+	}
 	providedKey := strings.TrimSpace(c.Request().Header.Get("X-Internal-Api-Key"))
-	if requiredKey != "" {
-		if subtle.ConstantTimeCompare([]byte(requiredKey), []byte(providedKey)) != 1 {
-			return false
-		}
+	if subtle.ConstantTimeCompare([]byte(requiredKey), []byte(providedKey)) != 1 {
+		return false
 	}
 
 	orgRole := strings.TrimSpace(c.Request().Header.Get("X-Org-Role"))
