@@ -223,3 +223,4 @@ This repository is private and internal. All planning, architecture, and impleme
 - Badge test: YOLO flow (2026-04-17)
 - Badge test: Pair flow (2026-04-17)
 
+- Badge test: YOLO retry flow (2026-04-17)
