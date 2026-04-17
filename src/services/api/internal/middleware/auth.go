@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/clerk/clerk-sdk-go/v2"
@@ -103,6 +104,73 @@ func RequireWorkspace() echo.MiddlewareFunc {
 			}
 			return next(c)
 		}
+	}
+}
+
+// RequireWriteAccess enforces read-only access for viewers.
+// Member and admin roles are allowed to perform mutating actions.
+func RequireWriteAccess() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			claims := GetClaims(c)
+			if claims == nil {
+				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			}
+
+			role := normalizeOrgRole(claims.OrgRole)
+			if role == "viewer" {
+				return c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden"})
+			}
+
+			return next(c)
+		}
+	}
+}
+
+// RequireAdmin enforces admin-only permissions for membership and billing-critical actions.
+func RequireAdmin() echo.MiddlewareFunc {
+	return requireAnyRole("admin")
+}
+
+func requireAnyRole(allowed ...string) echo.MiddlewareFunc {
+	normalizedAllowed := make([]string, 0, len(allowed))
+	for _, role := range allowed {
+		normalizedAllowed = append(normalizedAllowed, normalizeOrgRole(role))
+	}
+
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			claims := GetClaims(c)
+			if claims == nil {
+				return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+			}
+
+			role := normalizeOrgRole(claims.OrgRole)
+			if !slices.Contains(normalizedAllowed, role) {
+				return c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden"})
+			}
+
+			return next(c)
+		}
+	}
+}
+
+func normalizeOrgRole(role string) string {
+	normalized := strings.ToLower(strings.TrimSpace(role))
+	if normalized == "" {
+		return "member"
+	}
+
+	if strings.Contains(normalized, ":") {
+		parts := strings.Split(normalized, ":")
+		normalized = parts[len(parts)-1]
+	}
+
+	switch normalized {
+	case "admin", "member", "viewer":
+		return normalized
+	default:
+		return "member"
 	}
 }
 
