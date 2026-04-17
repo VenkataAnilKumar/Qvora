@@ -22,7 +22,10 @@ func patchJobStatus(jobID, workspaceID, status string) error {
 		return fmt.Errorf("INTERNAL_API_KEY not set")
 	}
 
-	body, _ := json.Marshal(map[string]string{"status": status})
+	body, err := json.Marshal(map[string]string{"status": status})
+	if err != nil {
+		return fmt.Errorf("marshal status request: %w", err)
+	}
 
 	req, err := http.NewRequest(
 		http.MethodPatch,
@@ -63,7 +66,10 @@ func patchVariantFalRequestID(ctx context.Context, variantID, workspaceID, falRe
 		return fmt.Errorf("INTERNAL_API_KEY not set")
 	}
 
-	body, _ := json.Marshal(map[string]string{"fal_request_id": falRequestID})
+	body, err := json.Marshal(map[string]string{"fal_request_id": falRequestID})
+	if err != nil {
+		return fmt.Errorf("marshal fal-request body: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(
 		ctx,
@@ -102,7 +108,10 @@ func refreshAllSignalRecommendations(ctx context.Context, days int) error {
 		return fmt.Errorf("INTERNAL_API_KEY not set")
 	}
 
-	body, _ := json.Marshal(map[string]int{"days": days})
+	body, err := json.Marshal(map[string]int{"days": days})
+	if err != nil {
+		return fmt.Errorf("marshal refresh recommendations body: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(
 		ctx,
