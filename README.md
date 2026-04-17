@@ -220,4 +220,6 @@ This repository is private and internal. All planning, architecture, and impleme
 
 **License:** Proprietary. All rights reserved.
 
+- Badge test: YOLO flow (2026-04-17)
 - Badge test: Pair flow (2026-04-17)
+
