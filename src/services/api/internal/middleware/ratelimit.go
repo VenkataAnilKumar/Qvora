@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 	"os"
 	"strconv"
@@ -11,18 +10,20 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// RateLimiter uses Upstash Redis (HTTP) for per-user rate limiting.
+// RateLimiter uses Upstash Redis for per-user rate limiting.
 // 60 requests per minute per user. Unauthenticated requests use IP.
+// Requires UPSTASH_REDIS_URL in rediss://default:TOKEN@host:6379 format.
 func RateLimiter() echo.MiddlewareFunc {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     os.Getenv("UPSTASH_REDIS_REST_URL"),
-		Password: os.Getenv("UPSTASH_REDIS_REST_TOKEN"),
-	})
+	opt, err := redis.ParseURL(os.Getenv("UPSTASH_REDIS_URL"))
+	if err != nil {
+		panic("ratelimit: invalid UPSTASH_REDIS_URL: " + err.Error())
+	}
+	rdb := redis.NewClient(opt)
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			key := rateLimitKey(c)
-			ctx := context.Background()
+			ctx := c.Request().Context()
 
 			pipe := rdb.Pipeline()
 			incr := pipe.Incr(ctx, key)
