@@ -4,6 +4,20 @@
 
 **Paste a URL. Get 10 video ads. Know which ones win — automatically.**
 
+[Star Qvora on GitHub](https://github.com/VenkataAnilKumar/Qvora) if you find this project useful.
+
+## Demo And Snapshot
+
+- Product: AI-powered performance creative SaaS for agencies
+- Core flow: URL -> AI brief -> video variants -> performance signals -> better variants
+- Format output: short-form 9:16 ads for paid social
+
+## Why Qvora
+
+- Ship more ad variants faster without manual editing bottlenecks
+- Keep creative strategy grounded in measurable performance signals
+- Run agency workflows with multi-tenant workspace boundaries
+
 Qvora is an AI-powered performance creative platform for agencies. It turns any product URL into a full batch of short-form video ads (9:16), then uses real performance signals to generate better-performing variants in the next round. No briefs to write. No editors to brief. No guesswork.
 
 ---
@@ -216,11 +230,51 @@ cd src/services/worker && go build ./...
 
 ## Repository
 
-This repository is private and internal. All planning, architecture, and implementation details are confidential. Do not publish externally without explicit approval.
+This repository is public for product visibility and collaboration. Keep secrets out of source control and use Doppler or environment variables for sensitive configuration.
 
 **License:** Proprietary. All rights reserved.
 
-- Badge test: YOLO flow (2026-04-17)
-- Badge test: Pair flow (2026-04-17)
+---
 
-- Badge test: YOLO retry flow (2026-04-17)
+## Social Preview Checklist
+
+Use this before sharing Qvora publicly to improve discovery and conversions.
+
+- Add a social preview image at 1280x640 in repository settings
+- Keep title consistent: Qvora - Born to Convert
+- Keep description aligned with the repo description and README hero
+- Pin this repository on your GitHub profile
+- Add website/homepage URL if available
+- Verify topics are set: ai, generative-ai, saas, adtech, video-generation, nextjs, golang, rust, supabase, vercel
+- Keep README top section focused on value, proof, and clear CTA
+
+## Launch Copy (Ready To Post)
+
+### X / Twitter
+
+Building in public: Qvora is now live on GitHub.
+
+Qvora turns a product URL into short-form video ads, then improves variants using performance signals.
+
+If this is useful for your agency workflow, star the repo:
+https://github.com/VenkataAnilKumar/Qvora
+
+### LinkedIn
+
+I just made Qvora public on GitHub.
+
+Qvora is an AI-powered performance creative platform for agencies: paste a product URL, generate short-form video ad variants, and use performance signals to improve the next round.
+
+Repository:
+https://github.com/VenkataAnilKumar/Qvora
+
+If this direction is interesting to you, a star or feedback is appreciated.
+
+### Product / Community Short Blurb
+
+Qvora helps agencies go from URL to performance creative faster:
+- AI-generated angles, hooks, and scripts
+- Multi-model video generation pipeline
+- Signal-informed creative iteration loop
+
+Repo: https://github.com/VenkataAnilKumar/Qvora
