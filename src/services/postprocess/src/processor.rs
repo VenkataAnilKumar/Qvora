@@ -22,9 +22,6 @@ use anyhow::Context;
 use std::collections::HashMap;
 
 #[cfg(feature = "ffmpeg")]
-use std::path::Path;
-
-#[cfg(feature = "ffmpeg")]
 use std::sync::OnceLock;
 
 #[cfg(feature = "ffmpeg")]
