@@ -1,11 +1,7 @@
 name: Deploy Worker
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "src/services/worker/**"
-      - ".github/workflows/deploy-worker.yml"
+  workflow_dispatch:
 
 concurrency:
   group: deploy-worker

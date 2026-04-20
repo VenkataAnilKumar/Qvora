@@ -1,11 +1,7 @@
 name: Deploy API
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "src/services/api/**"
-      - ".github/workflows/deploy-api.yml"
+  workflow_dispatch:
 
 concurrency:
   group: deploy-api

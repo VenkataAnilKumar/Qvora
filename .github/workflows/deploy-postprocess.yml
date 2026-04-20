@@ -1,11 +1,7 @@
 name: Deploy Postprocess
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "src/services/postprocess/**"
-      - ".github/workflows/deploy-postprocess.yml"
+  workflow_dispatch:
 
 concurrency:
   group: deploy-postprocess
