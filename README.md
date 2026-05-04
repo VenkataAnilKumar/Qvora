@@ -1,9 +1,5 @@
 # Qvora
 
-> **Born to Convert.**
-
-**Paste a URL. Get 10 video ads. Know which ones win — automatically.**
-
 Qvora is an AI-powered performance creative platform for agencies. It turns any product URL into a full batch of short-form video ads (9:16), then uses real performance signals to generate better-performing variants in the next round. No briefs to write. No editors to brief. No guesswork.
 
 ---
