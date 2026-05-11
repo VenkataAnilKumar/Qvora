@@ -3,7 +3,7 @@ module github.com/qvora/api
 go 1.24.0
 
 require (
-	github.com/clerk/clerk-sdk-go/v2 v2.5.1
+	github.com/clerk/clerk-sdk-go/v2 v2.6.0
 	github.com/google/uuid v1.6.0
 	github.com/hibiken/asynq v0.26.0
 	github.com/jackc/pgx/v5 v5.7.6
