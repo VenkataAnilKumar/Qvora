@@ -77,6 +77,19 @@ func GetBrandLogoKey(c echo.Context, workspaceID pgtype.UUID) (string, bool, err
 	return logoKey, brand.WatermarkEnabled, nil
 }
 
+// GetBrandName returns the most recently updated brand kit's name for a
+// workspace, or "" if no brand kit exists yet.
+func GetBrandName(c echo.Context, workspaceID pgtype.UUID) (string, error) {
+	brand, err := getLatestBrandKit(c, workspaceID)
+	if err != nil {
+		return "", err
+	}
+	if brand == nil {
+		return "", nil
+	}
+	return brand.Name, nil
+}
+
 // GetWorkspace handles GET /api/v1/workspaces/:orgId
 func GetWorkspace(c echo.Context) error {
 	claims := appmiddleware.GetClaims(c)
