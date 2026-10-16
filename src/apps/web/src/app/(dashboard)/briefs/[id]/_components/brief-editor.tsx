@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "@qvora/ui";
 import { trpc } from "@/lib/trpc/client";
 
@@ -238,9 +239,12 @@ export function BriefEditor(props: BriefEditorProps) {
 
       {info ? <p className="text-sm text-[var(--color-convert-green)]">{info}</p> : null}
 
-      <div className="flex justify-end">
-        <Button type="button" disabled={isBusy || !canSave} onClick={save}>
+      <div className="flex items-center justify-end gap-3">
+        <Button type="button" variant="outline" disabled={isBusy || !canSave} onClick={save}>
           {updateMutation.isPending ? "Saving…" : "Save brief edits"}
+        </Button>
+        <Button asChild disabled={isBusy}>
+          <Link href={`/briefs/${props.briefId}/generate`}>Generate videos →</Link>
         </Button>
       </div>
     </div>

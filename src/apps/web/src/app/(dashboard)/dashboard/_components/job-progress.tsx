@@ -18,7 +18,6 @@ const TERMINAL = new Set(["complete", "failed"]);
 const PROGRESS_MAP: Record<string, number> = {
   queued: 5,
   scraping: 20,
-  briefing: 55,
   generating: 75,
   postprocessing: 90,
   complete: 100,
@@ -28,7 +27,6 @@ const PROGRESS_MAP: Record<string, number> = {
 const PROGRESS_WIDTH_CLASS: Record<string, string> = {
   queued: "w-[5%]",
   scraping: "w-[20%]",
-  briefing: "w-[55%]",
   generating: "w-[75%]",
   postprocessing: "w-[90%]",
   complete: "w-full",
@@ -38,7 +36,6 @@ const PROGRESS_WIDTH_CLASS: Record<string, string> = {
 const LABEL_MAP: Record<string, string> = {
   queued: "Job accepted — entering pipeline",
   scraping: "Scraping product page via Modal Playwright",
-  briefing: "Generating creative brief with GPT-4o",
   generating: "Generating video variants via FAL.AI",
   postprocessing: "Postprocessing & encoding via Rust",
   complete: "Generation complete",

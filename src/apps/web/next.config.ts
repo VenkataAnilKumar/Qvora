@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   // Turborepo workspace packages
@@ -46,7 +47,10 @@ const nextConfig: NextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://assets.qvora.com https://image.mux.com",
               "media-src 'self' blob: https://stream.mux.com",
-              "connect-src 'self' https://api.qvora.com https://*.clerk.accounts.dev https://clerk.qvora.com",
+              // Sentry (error ingest) and PostHog (product analytics) both make
+              // their own fetch/beacon calls from the browser — without these,
+              // CSP would silently drop every event client-side.
+              "connect-src 'self' https://api.qvora.com https://*.clerk.accounts.dev https://clerk.qvora.com https://*.sentry.io https://*.posthog.com",
               "font-src 'self' data:",
               "frame-ancestors 'none'",
             ].join("; "),
@@ -61,4 +65,13 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// withSentryConfig auto-discovers sentry.client/server/edge.config.ts and
+// injects source-map upload during build. No-ops cleanly if SENTRY_ORG/
+// SENTRY_PROJECT/SENTRY_AUTH_TOKEN aren't set (e.g. local dev).
+export default withSentryConfig(nextConfig, {
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: true,
+  widenClientFileUpload: true,
+  disableLogger: true,
+});

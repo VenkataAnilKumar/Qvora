@@ -23,6 +23,7 @@ func UpdateWorkspaceLifecycle(c echo.Context) error { return identity.UpdateWork
 func GetWorkspaceUsage(c echo.Context) error        { return identity.GetWorkspaceUsage(c) }
 func SyncWorkspaceMembership(c echo.Context) error  { return identity.SyncWorkspaceMembership(c) }
 func ResetWorkspaceUsage(c echo.Context) error      { return identity.ResetWorkspaceUsage(c) }
+func UpdateStripeCustomerID(c echo.Context) error   { return identity.UpdateStripeCustomerID(c) }
 
 // incrementWorkspaceUsageForVariant bridges handler/webhook.go → identity domain.
 // Remove once webhook.go is migrated to domain/media.

@@ -114,32 +114,16 @@ func UpdateWorkspaceLifecycle(c echo.Context) error {
 			"lifecycle_event":     eventType,
 		})
 	case "organization.deleted":
+		if err := CancelWorkspaceForDeletedOrg(c, orgID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return c.JSON(http.StatusNotFound, map[string]string{"error": "workspace_not_found"})
+			}
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_cancel_failed"})
+		}
 		q, err := store.Queries(c.Request().Context())
 		if err != nil {
 			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 		}
-		if store.Pool() == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
-		}
-		workspace, err := q.GetWorkspaceByOrgID(c.Request().Context(), orgID)
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return c.JSON(http.StatusNotFound, map[string]string{"error": "workspace_not_found"})
-			}
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_lookup_failed"})
-		}
-		_, err = store.Pool().Exec(
-			c.Request().Context(),
-			`UPDATE workspaces
-			 SET sub_status = 'canceled',
-			     updated_at = NOW()
-			 WHERE id = $1`,
-			workspace.ID,
-		)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_cancel_failed"})
-		}
-		scheduleSignalGDPRPurge(c, orgID)
 		updated, err := q.GetWorkspaceByOrgID(c.Request().Context(), orgID)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_read_after_write_failed"})
@@ -155,6 +139,37 @@ func UpdateWorkspaceLifecycle(c echo.Context) error {
 	default:
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_event"})
 	}
+}
+
+// CancelWorkspaceForDeletedOrg cancels the workspace subscription and schedules
+// the signal-data GDPR purge for a Clerk org that no longer exists. Shared by
+// the authenticated lifecycle endpoint and the Clerk organization.deleted webhook.
+// Returns pgx.ErrNoRows if no workspace was ever provisioned for this org.
+func CancelWorkspaceForDeletedOrg(c echo.Context, orgID string) error {
+	q, err := store.Queries(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	if store.Pool() == nil {
+		return errors.New("database_not_initialized")
+	}
+	workspace, err := q.GetWorkspaceByOrgID(c.Request().Context(), orgID)
+	if err != nil {
+		return err
+	}
+	_, err = store.Pool().Exec(
+		c.Request().Context(),
+		`UPDATE workspaces
+		 SET sub_status = 'canceled',
+		     updated_at = NOW()
+		 WHERE id = $1`,
+		workspace.ID,
+	)
+	if err != nil {
+		return err
+	}
+	scheduleSignalGDPRPurge(c, orgID)
+	return nil
 }
 
 // scheduleSignalGDPRPurge marks a workspace for signal data deletion 90 days

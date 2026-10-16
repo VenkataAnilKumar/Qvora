@@ -15,7 +15,7 @@
 | [personas](product/personas.md) | ICP: Agency Media Buyer (P1), Creative Director (P2), Account Manager (P3 read-only), DTC (P4 Phase 2) | 2026-04-15 |
 | [pricing](product/pricing.md) | Starter $99 / Growth $149 / Agency $399; trial logic; Stripe webhook handling; entitlements | 2026-04-15 |
 | [brand](product/brand.md) | Brand tokens (Volt #7B2FFF, Green #00E87A, etc.), fonts (Clash Display, Space Grotesk, Inter, JetBrains Mono), taglines | 2026-04-15 |
-| [roadmap](product/roadmap.md) | Phase 0–5 status: Phase 0+1+3 complete, Phase 2 partial (BRIEF-08/09 in progress), Phase 4+ pending | 2026-04-15 |
+| [roadmap](product/roadmap.md) | Phase 0–5 status (reconciled Apr 15, 2026): Phase 0+1+2 complete, Phase 3+4 partial (Export has no creation backend), Phase 5 not started | 2026-04-15 |
 | [user-stories](product/user-stories.md) | 8 epics (EPIC 1–8); key stories, acceptance criteria; EPIC 7 (Signal) V2 only | 2026-04-15 |
 | [user-journey](product/user-journey.md) | 7 journey phases from awareness to Signal; activation moment = first brief in 60s; screen-level flow | 2026-04-15 |
 

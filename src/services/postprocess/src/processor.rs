@@ -36,10 +36,30 @@ pub struct ProcessorConfig {
     pub watermark: bool,
     pub add_captions: bool,
     pub script: Option<String>,
+    pub logo_r2_key: Option<String>,
+    pub aspect_ratio: Option<String>,
     pub s3_client: S3Client,
     pub r2_bucket: String,
     pub _r2_endpoint: String,
     pub mux_client: MuxClient,
+}
+
+/// Target frame dimensions for a postprocessed video.
+#[derive(Clone, Copy)]
+pub struct FrameSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Resolves a requested aspect ratio string to concrete output dimensions.
+/// Defaults to 9:16 (1080x1920) — the existing short-form behavior — for any
+/// unrecognized or absent value, so this never regresses current output.
+fn resolve_frame_size(aspect_ratio: Option<&str>) -> FrameSize {
+    match aspect_ratio {
+        Some("1:1") => FrameSize { width: 1080, height: 1080 },
+        Some("16:9") => FrameSize { width: 1920, height: 1080 },
+        _ => FrameSize { width: 1080, height: 1920 },
+    }
 }
 
 impl ProcessorConfig {
@@ -61,6 +81,23 @@ impl ProcessorConfig {
 
         let download_start = Instant::now();
         let input_path = self.download_from_r2(input_r2_key).await?;
+        let logo_path = match self.logo_r2_key.as_deref() {
+            Some(key) if !key.is_empty() => match self.download_from_r2(key).await {
+                Ok(path) => Some(path),
+                Err(err) => {
+                    // Non-fatal — fall back to the text watermark rather than failing the job
+                    // over a missing/unreadable logo asset.
+                    info!(
+                        request_id = %self.request_id,
+                        variant_id = %self.variant_id,
+                        error = %err,
+                        "failed to download brand logo; falling back to text watermark"
+                    );
+                    None
+                }
+            },
+            _ => None,
+        };
         let download_ms = download_start.elapsed().as_millis() as u64;
         info!(
             request_id = %self.request_id,
@@ -79,8 +116,14 @@ impl ProcessorConfig {
                 self.watermark,
                 self.add_captions,
                 self.script.as_deref(),
+                logo_path.as_deref(),
+                resolve_frame_size(self.aspect_ratio.as_deref()),
             )
-            .await?;
+            .await;
+        if let Some(path) = &logo_path {
+            let _ = std::fs::remove_file(path);
+        }
+        let output_path = output_path?;
         let transcode_ms = transcode_start.elapsed().as_millis() as u64;
         info!(
             request_id = %self.request_id,
@@ -150,8 +193,16 @@ impl ProcessorConfig {
     }
 
     async fn download_from_r2(&self, r2_key: &str) -> Result<PathBuf> {
-        let mut temp_file = NamedTempFile::new()?;
-        let temp_path = temp_file.path().to_path_buf();
+        // `NamedTempFile` deletes its file on Drop. Persisting it immediately via
+        // `.keep()` hands ownership of the path to the caller (who is responsible
+        // for removing it later, matching how `process()` already cleans up
+        // `input_path`/`output_path`/the logo path manually) — returning just the
+        // path while the guard still owned deletion would otherwise delete the
+        // file the moment this function returns, before anyone could read it.
+        let temp_file = NamedTempFile::new()?;
+        let (mut file, temp_path) = temp_file
+            .keep()
+            .map_err(|e| anyhow!("failed to persist temp file: {}", e))?;
 
         if r2_key.starts_with("http://") || r2_key.starts_with("https://") {
             let response = reqwest::Client::new()
@@ -172,8 +223,8 @@ impl ProcessorConfig {
                 .await
                 .map_err(|e| anyhow!("Failed to read URL response body: {}", e))?;
 
-            temp_file.write_all(&bytes)?;
-            temp_file.flush()?;
+            file.write_all(&bytes)?;
+            file.flush()?;
             return Ok(temp_path);
         }
 
@@ -193,8 +244,8 @@ impl ProcessorConfig {
             .map_err(|e| anyhow!("Failed to read R2 stream: {}", e))?
             .into_bytes();
 
-        temp_file.write_all(&bytes)?;
-        temp_file.flush()?;
+        file.write_all(&bytes)?;
+        file.flush()?;
 
         Ok(temp_path)
     }
@@ -206,11 +257,20 @@ impl ProcessorConfig {
         watermark: bool,
         add_captions: bool,
         script: Option<&str>,
+        logo_path: Option<&Path>,
+        frame_size: FrameSize,
     ) -> Result<PathBuf> {
         #[cfg(feature = "ffmpeg")]
         {
             return self
-                .run_transcode_with_bindings(input_path, watermark, add_captions, script)
+                .run_transcode_with_bindings(
+                    input_path,
+                    watermark,
+                    add_captions,
+                    script,
+                    logo_path,
+                    frame_size,
+                )
                 .await;
         }
 
@@ -229,23 +289,37 @@ impl ProcessorConfig {
         watermark: bool,
         add_captions: bool,
         script: Option<&str>,
+        logo_path: Option<&Path>,
+        frame_size: FrameSize,
     ) -> Result<PathBuf> {
         let output_file = NamedTempFile::new()?;
         let output_path = output_file.path().to_path_buf();
         drop(output_file);
 
-        let filter_spec = build_filter_spec(watermark, add_captions, script);
+        let script = script.map(|s| s.to_string());
+        let logo_path = logo_path.map(|p| p.to_path_buf());
 
         info!(
             variant_id = %self.variant_id,
-            filter_spec = %filter_spec,
+            watermark = watermark,
+            add_captions = add_captions,
             "running FFmpeg bindings pipeline"
         );
 
         tokio::task::spawn_blocking({
             let input_path = input_path.to_path_buf();
             let output_path = output_path.clone();
-            move || transcode_video(&input_path, &output_path, &filter_spec)
+            move || {
+                transcode_video(
+                    &input_path,
+                    &output_path,
+                    watermark,
+                    add_captions,
+                    script.as_deref(),
+                    logo_path.as_deref(),
+                    frame_size,
+                )
+            }
         })
         .await
         .map_err(|e| anyhow!("ffmpeg task join failed: {e}"))??;
@@ -277,8 +351,10 @@ impl ProcessorConfig {
             .bucket(&self.r2_bucket)
             .key(r2_key)
             .presigned(
+                // 15 min — this URL is only used internally (handed straight to Mux
+                // for ingestion), but kept short per the security checklist anyway.
                 PresigningConfig::builder()
-                    .expires_in(Duration::from_secs(3600))
+                    .expires_in(Duration::from_secs(900))
                     .build()
                     .map_err(|e| anyhow!("Presigned config failed: {}", e))?,
             )
@@ -290,7 +366,15 @@ impl ProcessorConfig {
 }
 
 #[cfg(feature = "ffmpeg")]
-fn transcode_video(input_path: &Path, output_path: &Path, filter_spec: &str) -> Result<()> {
+fn transcode_video(
+    input_path: &Path,
+    output_path: &Path,
+    watermark: bool,
+    add_captions: bool,
+    script: Option<&str>,
+    logo_path: Option<&Path>,
+    frame_size: FrameSize,
+) -> Result<()> {
     init_ffmpeg()?;
 
     let input_str = input_path.to_string_lossy().into_owned();
@@ -300,6 +384,27 @@ fn transcode_video(input_path: &Path, output_path: &Path, filter_spec: &str) -> 
         .with_context(|| format!("failed to open input {}", input_path.display()))?;
     let mut octx = format::output(&output_str)
         .with_context(|| format!("failed to open output {}", output_path.display()))?;
+
+    // Duration (seconds) used to time-distribute caption chunks across the clip.
+    // AV_TIME_BASE is always 1_000_000 — a negative/zero value means ffmpeg
+    // couldn't determine it, in which case captions fall back to one static block.
+    let duration_secs = {
+        let raw = ictx.duration();
+        if raw > 0 {
+            Some(raw as f64 / 1_000_000.0)
+        } else {
+            None
+        }
+    };
+    let filter_spec = build_filter_spec(
+        watermark,
+        add_captions,
+        script,
+        logo_path,
+        frame_size,
+        duration_secs,
+    );
+    info!(filter_spec = %filter_spec, "resolved ffmpeg filter graph");
 
     let mut stream_mapping: Vec<isize> = vec![0; ictx.nb_streams() as _];
     let mut ist_time_bases = vec![Rational(0, 0); ictx.nb_streams() as _];
@@ -324,7 +429,7 @@ fn transcode_video(input_path: &Path, output_path: &Path, filter_spec: &str) -> 
         if medium == media::Type::Video {
             transcoders.insert(
                 ist_index,
-                VideoTranscoder::new(&ist, &mut octx, ost_index as usize, filter_spec)
+                VideoTranscoder::new(&ist, &mut octx, ost_index as usize, &filter_spec, frame_size)
                     .with_context(|| {
                         format!("failed to initialize video transcoder for stream {ist_index}")
                     })?,
@@ -405,6 +510,7 @@ impl VideoTranscoder {
         octx: &mut format::context::Output,
         ost_index: usize,
         filter_spec: &str,
+        frame_size: FrameSize,
     ) -> Result<Self> {
         let global_header = octx.format().flags().contains(format::Flags::GLOBAL_HEADER);
         let decoder = ffmpeg::codec::context::Context::from_parameters(ist.parameters())?
@@ -421,8 +527,8 @@ impl VideoTranscoder {
             .encoder()
             .video()?;
         ost.set_parameters(&encoder);
-        encoder.set_width(1080);
-        encoder.set_height(1920);
+        encoder.set_width(frame_size.width);
+        encoder.set_height(frame_size.height);
         encoder.set_aspect_ratio((1, 1));
         encoder.set_format(ffmpeg::format::Pixel::YUV420P);
         encoder.set_time_base(ist.time_base());
@@ -635,46 +741,117 @@ fn build_video_filter(
 }
 
 #[cfg(feature = "ffmpeg")]
-fn build_filter_spec(watermark: bool, add_captions: bool, script: Option<&str>) -> String {
-    let mut filters = vec![
-        "scale=1080:1920:force_original_aspect_ratio=decrease".to_string(),
-        "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black".to_string(),
-    ];
+fn build_filter_spec(
+    watermark: bool,
+    add_captions: bool,
+    script: Option<&str>,
+    logo_path: Option<&Path>,
+    frame_size: FrameSize,
+    duration_secs: Option<f64>,
+) -> String {
+    let scale_pad = format!(
+        "scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black",
+        w = frame_size.width,
+        h = frame_size.height,
+    );
 
-    if watermark {
-        filters.push(
-            "drawtext=text='Qvora':fontsize=48:fontcolor=white@0.1:x=w-200:y=h-100:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-                .to_string(),
-        );
-    }
-
+    // Captions apply to the base chain regardless of watermark strategy.
+    let mut base_filters = vec![scale_pad];
     if add_captions {
-        if let Some(script) = script.and_then(normalize_caption_text) {
-            filters.push(format!(
-                "drawtext=text='{}':fontsize=42:fontcolor=white:borderw=3:bordercolor=black@0.75:line_spacing=12:x=(w-text_w)/2:y=h-text_h-140:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                escape_drawtext(&script)
-            ));
+        if let Some(script) = script {
+            base_filters.extend(build_caption_filters(script, duration_secs));
         }
     }
 
-    filters.join(",")
+    match (watermark, logo_path) {
+        // Real brand logo: composite the downloaded image via the `movie` source filter
+        // and overlay it, bottom-right, instead of a static text mark.
+        (true, Some(path)) => {
+            let base_chain = base_filters.join(",");
+            format!(
+                "{base_chain}[base];movie='{logo}',scale=160:-1[logowm];[base][logowm]overlay=W-w-24:H-h-24:format=auto",
+                base_chain = base_chain,
+                logo = escape_filter_path(&path.to_string_lossy()),
+            )
+        }
+        // No logo configured for this workspace yet — fall back to the original
+        // static text mark so watermarking still does something.
+        (true, None) => {
+            base_filters.push(
+                "drawtext=text='Qvora':fontsize=48:fontcolor=white@0.1:x=w-200:y=h-100:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+                    .to_string(),
+            );
+            base_filters.join(",")
+        }
+        (false, _) => base_filters.join(","),
+    }
 }
 
+/// Escapes a filesystem path for safe use inside an ffmpeg filtergraph option
+/// value (e.g. the `movie` filter's `filename`), per libavfilter's escaping
+/// rules for special characters within a single-quoted option.
 #[cfg(feature = "ffmpeg")]
-fn normalize_caption_text(script: &str) -> Option<String> {
-    let collapsed = script
+fn escape_filter_path(path: &str) -> String {
+    path.replace('\\', "\\\\")
+        .replace(':', "\\:")
+        .replace('\'', "\\'")
+}
+
+/// Splits the script into ~6-word chunks and, when the clip duration is known,
+/// time-distributes them evenly via ffmpeg's `enable='between(t,start,end)'` so
+/// captions advance across the video instead of sitting on screen as one static
+/// block for the whole clip.
+///
+/// This is NOT word-level ASR sync — no transcription timestamps exist anywhere
+/// in this pipeline yet (ElevenLabs is called without its timestamps endpoint,
+/// and nothing persists per-word timing). It's an even chunk-duration
+/// approximation; real sync would need a separate cross-service change to
+/// capture and plumb through actual timestamps.
+#[cfg(feature = "ffmpeg")]
+fn build_caption_filters(script: &str, duration_secs: Option<f64>) -> Vec<String> {
+    let chunks: Vec<String> = script
         .split_whitespace()
         .collect::<Vec<_>>()
         .chunks(6)
         .map(|chunk| chunk.join(" "))
-        .collect::<Vec<_>>()
-        .join("\n");
+        .filter(|chunk| !chunk.trim().is_empty())
+        .collect();
 
-    let trimmed = collapsed.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
+    if chunks.is_empty() {
+        return Vec::new();
+    }
+
+    let base_style = "fontsize=42:fontcolor=white:borderw=3:bordercolor=black@0.75:line_spacing=12:x=(w-text_w)/2:y=h-text_h-140:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
+
+    match duration_secs {
+        Some(duration) if duration > 0.0 && chunks.len() > 1 => {
+            let window = duration / chunks.len() as f64;
+            chunks
+                .iter()
+                .enumerate()
+                .map(|(i, chunk)| {
+                    let start = i as f64 * window;
+                    let end = (i as f64 + 1.0) * window;
+                    // Commas inside the single-quoted `between(...)` expression are
+                    // literal (single quotes protect them from the filtergraph
+                    // chain-separator parser) and must NOT be backslash-escaped,
+                    // or libavfilter's eval parser would choke on the expression.
+                    format!(
+                        "drawtext=text='{}':{}:enable='between(t,{:.3},{:.3})'",
+                        escape_drawtext(chunk),
+                        base_style,
+                        start,
+                        end,
+                    )
+                })
+                .collect()
+        }
+        _ => {
+            // Duration unknown or only one chunk — fall back to a single static
+            // block for the whole clip, matching the prior behavior.
+            let joined = chunks.join("\n");
+            vec![format!("drawtext=text='{}':{}", escape_drawtext(&joined), base_style)]
+        }
     }
 }
 

@@ -14,6 +14,15 @@ pub struct ProcessRequest {
     #[serde(default)]
     pub add_captions: bool,
     pub script: Option<String>,
+    /// R2 key of the brand logo (PNG/SVG) to overlay. When absent, `watermark`
+    /// falls back to a static text mark so existing behavior doesn't regress.
+    #[serde(default)]
+    pub logo_r2_key: Option<String>,
+    /// Target aspect ratio for the output frame. Defaults to "9:16" (current
+    /// behavior). Accepts "9:16", "1:1", or "16:9" — ready for the Export
+    /// Engine to request per-platform renditions once it exists.
+    #[serde(default)]
+    pub aspect_ratio: Option<String>,
 }
 
 /// Output for POST /process (synchronously returned, background operation)

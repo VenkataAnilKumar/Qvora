@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input } from "@qvora/ui";
 import { trpc } from "@/lib/trpc/client";
 
@@ -54,6 +55,7 @@ export function BriefCreatePanel({
   const createMutation = trpc.briefs.create.useMutation({
     onSuccess: (result) => {
       setError(null);
+      posthog.capture("brief_created", { brief_id: result.briefId });
       router.push(`/briefs/${result.briefId}`);
     },
     onError: (mutationError) => {

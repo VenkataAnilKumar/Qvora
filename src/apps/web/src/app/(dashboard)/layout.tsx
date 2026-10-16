@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
+import { TrialLockedOverlay } from "@/components/trial-locked-overlay";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { userId, orgId } = await auth();
@@ -13,5 +14,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/onboarding");
   }
 
-  return <div className="flex min-h-screen flex-col bg-[var(--color-surface-0)]">{children}</div>;
+  return (
+    <div className="flex min-h-screen flex-col bg-[var(--color-surface-0)]">
+      <TrialLockedOverlay />
+      {children}
+    </div>
+  );
 }

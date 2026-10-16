@@ -25,7 +25,9 @@ type PostprocessPayload struct {
 	OutputR2Key          string `json:"output_r2_key"`  // final processed output
 	Watermark            bool   `json:"watermark"`
 	AddCaptions          bool   `json:"add_captions"`
-	Script               string `json:"script,omitempty"` // for caption burn-in
+	Script               string `json:"script,omitempty"`     // for caption burn-in
+	LogoR2Key            string `json:"logo_r2_key,omitempty"` // brand logo overlay; falls back to text mark when empty
+	AspectRatio          string `json:"aspect_ratio,omitempty"` // "9:16" (default), "1:1", or "16:9"
 }
 
 func NewPostprocessTask(payload PostprocessPayload) (*asynq.Task, error) {
@@ -66,6 +68,8 @@ func HandlePostprocess(ctx context.Context, t *asynq.Task) error {
 		"watermark":     payload.Watermark,
 		"add_captions":  payload.AddCaptions,
 		"script":        payload.Script,
+		"logo_r2_key":   payload.LogoR2Key,
+		"aspect_ratio":  payload.AspectRatio,
 	})
 	if err != nil {
 		_ = patchJobStatus(payload.JobID, payload.WorkspaceID, "failed")

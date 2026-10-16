@@ -2,6 +2,7 @@ import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from
 import { PLAN_LIMITS } from "@qvora/types";
 import { createServerClient } from "@/lib/trpc/server";
 import { DashboardClient } from "./_components/dashboard-client";
+import { ManageBillingButton } from "./_components/manage-billing-button";
 
 type TrendPoint = {
   date: string;
@@ -105,10 +106,11 @@ export default async function DashboardPage() {
       <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <Card className="border-white/10 bg-[linear-gradient(135deg,rgba(123,47,255,0.16),rgba(17,17,24,0.98)_48%,rgba(46,156,255,0.10))]">
           <CardHeader className="gap-4">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge>{workspace.planTier}</Badge>
               <Badge variant="success">{workspace.subscriptionStatus}</Badge>
               <Badge variant="outline">Workspace {workspace.orgId}</Badge>
+              <ManageBillingButton />
             </div>
             <div className="space-y-3">
               <CardDescription>Generation console</CardDescription>

@@ -8,8 +8,13 @@ updated: 2026-04-15
 
 # Product Roadmap & Phase Status
 
+> **Note:** This doc's 6-phase scheme (0–5) is different from `docs/07-implementation/IMPLEMENTATION_CHECKLIST.md`'s
+> 10-phase scheme — they group work differently and the same phase number means different things in each.
+> This page was also found to disagree with the checklist and with the actual code as of Apr 15, 2026
+> (see corrections below); treat it as reconciled only as of that date.
+
 ## TL;DR
-Phase 0 (infra) and Phase 1 (URL→Brief) are complete. Phase 2 (Brief editing + Video generation) is partially complete. Phase 3 is complete. Phase 4+ is pending. As of April 15, 2026.
+Phase 0 (infra) and Phase 1 (URL→Brief) are complete. **Phase 2 (Brief editing) is actually complete** — BRIEF-08/09 (inline edit persistence, per-angle/per-hook regeneration) are both real and working, verified by reading `brief-editor.tsx` and the `briefs` tRPC router directly; the "in progress" claim below was stale. **Phase 3 is only partial, not complete** — Asset Library and Team Collab were built Apr 15, 2026 (previously didn't exist), but Export has no backend at all (only listing, no creation). Phase 4+ is pending. As of April 15, 2026.
 
 ---
 
@@ -19,9 +24,9 @@ Phase 0 (infra) and Phase 1 (URL→Brief) are complete. Phase 2 (Brief editing +
 |---|---|---|
 | Phase 0 | Infrastructure & Auth | ✅ Complete |
 | Phase 1 | URL Ingestion → Brief Generation | ✅ Complete |
-| Phase 2 | Brief Editing + Video Generation (Studio) | 🟡 Partial |
-| Phase 3 | Export + Asset Library + Team Collab | ✅ Complete |
-| Phase 4 | Brand Kit + Platform & Billing | 🔴 Pending |
+| Phase 2 | Brief Editing + Video Generation (Studio) | ✅ Complete — BRIEF-08/09 verified working, not partial |
+| Phase 3 | Export + Asset Library + Team Collab | 🟡 Partial — Asset Library + Team built Apr 15, 2026; Export creation has no backend (list-only) |
+| Phase 4 | Brand Kit + Platform & Billing | 🟡 Partial — Brand Kit, Stripe checkout/portal, and logo-watermark capability built Apr 15, 2026; still missing logo upload and Export Engine |
 | Phase 5 | Performance Signal (V2) | 🔴 Not started |
 
 ---

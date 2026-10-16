@@ -80,7 +80,6 @@ export interface AngleBrief {
 export type GenerationStatus =
   | "queued"
   | "scraping"
-  | "briefing"
   | "generating"
   | "postprocessing"
   | "complete"

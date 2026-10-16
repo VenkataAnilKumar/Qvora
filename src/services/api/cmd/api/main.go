@@ -85,6 +85,7 @@ func main() {
 	workspaces.PATCH("/:orgId/memberships/sync", handler.SyncWorkspaceMembership, appmiddleware.RequireAdmin())
 	workspaces.PATCH("/:orgId/lifecycle", handler.UpdateWorkspaceLifecycle, appmiddleware.RequireAdmin())
 	workspaces.PATCH("/:orgId/subscription", handler.UpdateWorkspaceSubscription, appmiddleware.RequireAdmin())
+	workspaces.PATCH("/:orgId/stripe-customer", handler.UpdateStripeCustomerID, appmiddleware.RequireAdmin())
 
 	// Assets
 	assets := v1.Group("/assets", appmiddleware.RequireWorkspace())
@@ -127,6 +128,7 @@ func main() {
 	webhooks := e.Group("/webhooks")
 	webhooks.POST("/mux", handler.MuxWebhook)
 	webhooks.POST("/fal", handler.FalWebhook)
+	webhooks.POST("/clerk", handler.ClerkWebhook)
 
 	// -------------------------------------------------------------------------
 	// Start with graceful shutdown

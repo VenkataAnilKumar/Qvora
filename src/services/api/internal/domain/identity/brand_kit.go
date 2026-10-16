@@ -58,6 +58,25 @@ func getLatestBrandKit(c echo.Context, workspaceID pgtype.UUID) (*brandKitRecord
 	return &out, nil
 }
 
+// GetBrandLogoKey returns the logo R2 key and watermark-enabled flag for a
+// workspace's most recently updated brand kit. Returns ("", false, nil) if no
+// brand kit exists yet for the workspace — callers should treat that as "no
+// logo available" rather than an error.
+func GetBrandLogoKey(c echo.Context, workspaceID pgtype.UUID) (string, bool, error) {
+	brand, err := getLatestBrandKit(c, workspaceID)
+	if err != nil {
+		return "", false, err
+	}
+	if brand == nil {
+		return "", false, nil
+	}
+	logoKey := ""
+	if brand.LogoR2Key != nil {
+		logoKey = *brand.LogoR2Key
+	}
+	return logoKey, brand.WatermarkEnabled, nil
+}
+
 // GetWorkspace handles GET /api/v1/workspaces/:orgId
 func GetWorkspace(c echo.Context) error {
 	claims := appmiddleware.GetClaims(c)
@@ -72,12 +91,76 @@ func GetWorkspace(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
+	stripeCustomerID, err := getStripeCustomerID(c, workspaceID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_lookup_failed"})
+	}
 	return c.JSON(http.StatusOK, map[string]any{
 		"workspace_id":        util.UUIDString(workspaceID),
 		"org_id":              orgID,
 		"plan_tier":           planTier,
 		"subscription_status": subStatus,
 		"trial_ends_at":       util.TsTime(trialEndsAt),
+		"stripe_customer_id":  stripeCustomerID,
+	})
+}
+
+func getStripeCustomerID(c echo.Context, workspaceID pgtype.UUID) (*string, error) {
+	if store.Pool() == nil {
+		return nil, errors.New("database_not_initialized")
+	}
+	var customerID *string
+	err := store.Pool().QueryRow(
+		c.Request().Context(),
+		`SELECT stripe_customer_id FROM workspaces WHERE id = $1`,
+		workspaceID,
+	).Scan(&customerID)
+	if err != nil {
+		return nil, err
+	}
+	return customerID, nil
+}
+
+// UpdateStripeCustomerID handles PATCH /api/v1/workspaces/:orgId/stripe-customer
+// Narrow, single-purpose endpoint (vs. UpdateWorkspaceSubscription) so setting
+// the Stripe customer ID after checkout can never clobber plan_tier/sub_status.
+func UpdateStripeCustomerID(c echo.Context) error {
+	claims := appmiddleware.GetClaims(c)
+	if claims == nil || strings.TrimSpace(claims.OrgID) == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+	}
+	orgID := c.Param("orgId")
+	if orgID != claims.OrgID {
+		return c.JSON(http.StatusForbidden, map[string]string{"error": "forbidden"})
+	}
+	var req struct {
+		StripeCustomerID string `json:"stripe_customer_id"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+	}
+	trimmed := strings.TrimSpace(req.StripeCustomerID)
+	if trimmed == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "stripe_customer_id_required"})
+	}
+	workspaceID, err := store.WorkspaceIDForOrg(c.Request().Context(), orgID)
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
+	}
+	if store.Pool() == nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
+	}
+	_, err = store.Pool().Exec(
+		c.Request().Context(),
+		`UPDATE workspaces SET stripe_customer_id = $2, updated_at = NOW() WHERE id = $1`,
+		workspaceID, trimmed,
+	)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "stripe_customer_update_failed"})
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"org_id":             orgID,
+		"stripe_customer_id": trimmed,
 	})
 }
 

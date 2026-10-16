@@ -91,6 +91,35 @@ async function forwardSubscriptionUpdate(args: {
   }
 }
 
+async function forwardStripeCustomerID(args: { orgId: string; stripeCustomerId: string }) {
+  const internalHeaders = new Headers();
+  internalHeaders.set("Content-Type", "application/json");
+  internalHeaders.set("Accept", "application/json");
+  internalHeaders.set("X-User-Id", "stripe-webhook");
+  internalHeaders.set("X-Org-Id", args.orgId);
+  internalHeaders.set("X-Org-Role", "admin");
+
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+  if (internalApiKey) {
+    internalHeaders.set("X-Internal-Api-Key", internalApiKey);
+  }
+
+  const response = await fetch(
+    `${GO_API_BASE_URL}/api/v1/workspaces/${encodeURIComponent(args.orgId)}/stripe-customer`,
+    {
+      method: "PATCH",
+      headers: internalHeaders,
+      body: JSON.stringify({ stripe_customer_id: args.stripeCustomerId }),
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`workspace_stripe_customer_update_failed: ${response.status} ${body}`);
+  }
+}
+
 async function forwardInvoicePaid(args: {
   orgId: string;
   invoiceId: string;
@@ -170,6 +199,20 @@ export async function POST(req: Request) {
   }
 
   switch (event.type) {
+    case "checkout.session.completed": {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const orgId = session.client_reference_id;
+      const stripeCustomerId =
+        typeof session.customer === "string" ? session.customer : session.customer?.id;
+
+      if (!orgId || !stripeCustomerId) {
+        console.warn(`Missing org_id or customer on checkout session ${session.id}`);
+        break;
+      }
+
+      await forwardStripeCustomerID({ orgId, stripeCustomerId });
+      break;
+    }
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;

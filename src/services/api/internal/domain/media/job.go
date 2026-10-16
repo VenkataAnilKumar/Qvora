@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/qvora/api/internal/db"
@@ -16,6 +18,39 @@ import (
 	"github.com/qvora/api/internal/store"
 	"github.com/qvora/api/internal/util"
 )
+
+// scrapeTaskType mirrors the worker's task.TypeScrape constant.
+// TODO: consolidate into a shared constants package once domain/media is complete.
+const scrapeTaskType = "job:scrape"
+
+// scrapeTaskPayload mirrors the worker's task.ScrapePayload struct.
+type scrapeTaskPayload struct {
+	JobID       string `json:"job_id"`
+	WorkspaceID string `json:"workspace_id"`
+	ProductURL  string `json:"product_url"`
+}
+
+func enqueueScrapeTask(payload scrapeTaskPayload) error {
+	redisURL := strings.TrimSpace(os.Getenv("RAILWAY_REDIS_URL"))
+	if redisURL == "" {
+		return fmt.Errorf("RAILWAY_REDIS_URL is required")
+	}
+	redisOpt, err := asynq.ParseRedisURI(redisURL)
+	if err != nil {
+		return fmt.Errorf("parse railway redis url: %w", err)
+	}
+	client := asynq.NewClient(redisOpt)
+	defer client.Close()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal scrape task payload: %w", err)
+	}
+	t := asynq.NewTask(scrapeTaskType, data, asynq.Queue("default"), asynq.MaxRetry(3))
+	if _, err := client.Enqueue(t); err != nil {
+		return fmt.Errorf("enqueue scrape task: %w", err)
+	}
+	return nil
+}
 
 // AllowedModels is the set of valid FAL.AI video generation models.
 // Exported so domain/brief.batch can import it.
@@ -96,7 +131,19 @@ func SubmitJob(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_create_failed"})
 	}
-	// TODO: enqueue asynq scrape task to Railway Redis (TCP)
+	// job.Status is only "queued" on a genuinely new row — CreateJobIdempotent
+	// returns the existing row as-is on an idempotency-key replay, so this guards
+	// against re-enqueuing a scrape task for a job that's already in flight.
+	if job.Status == "queued" {
+		if err := enqueueScrapeTask(scrapeTaskPayload{
+			JobID:       util.UUIDString(job.ID),
+			WorkspaceID: util.UUIDString(workspaceID),
+			ProductURL:  job.ProductUrl,
+		}); err != nil {
+			_, _ = q.UpdateJobStatus(c.Request().Context(), db.UpdateJobStatusParams{ID: job.ID, Status: "failed"})
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "job_enqueue_failed"})
+		}
+	}
 	return c.JSON(http.StatusAccepted, map[string]any{
 		"job_id":             util.UUIDString(job.ID),
 		"org_id":             claims.OrgID,

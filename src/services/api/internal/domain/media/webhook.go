@@ -3,8 +3,10 @@ package media
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/labstack/echo/v4"
 	"github.com/qvora/api/internal/db"
@@ -223,6 +226,14 @@ func FalWebhook(c echo.Context) error {
 		taskData, err = json.Marshal(avatarPayload)
 		taskType = "job:avatar"
 	} else {
+		logoR2Key := ""
+		if parsedWorkspaceID, wsErr := util.ParseUUID(workspaceID); wsErr == nil {
+			// Best-effort — a missing/unreadable brand kit just means the Rust
+			// postprocessor falls back to its static text watermark.
+			if key, _, lookupErr := identity.GetBrandLogoKey(c, parsedWorkspaceID); lookupErr == nil {
+				logoR2Key = key
+			}
+		}
 		postprocessPayload := map[string]any{
 			"job_id":                 jobID,
 			"variant_id":             variantID,
@@ -232,6 +243,7 @@ func FalWebhook(c echo.Context) error {
 			"output_r2_key":          outputR2Key,
 			"watermark":              true,
 			"add_captions":           false,
+			"logo_r2_key":            logoR2Key,
 		}
 		taskData, err = json.Marshal(postprocessPayload)
 		taskType = "job:postprocess"
@@ -269,13 +281,74 @@ func FalWebhook(c echo.Context) error {
 
 // ClerkWebhook handles POST /webhooks/clerk
 func ClerkWebhook(c echo.Context) error {
-	var payload map[string]any
-	if err := c.Bind(&payload); err != nil {
+	body, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "failed_to_read_body"})
+	}
+	if !verifyClerkSignature(c, body) {
+		zap.L().Warn("clerk webhook signature verification failed")
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid_signature"})
+	}
+	var payload struct {
+		Type string `json:"type"`
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_payload"})
 	}
-	eventType, _ := payload["type"].(string)
-	_ = eventType // TODO: handle organization.deleted event
+	if payload.Type == "organization.deleted" {
+		orgID := strings.TrimSpace(payload.Data.ID)
+		if orgID == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "missing_org_id"})
+		}
+		if err := identity.CancelWorkspaceForDeletedOrg(c, orgID); err != nil {
+			if !errors.Is(err, pgx.ErrNoRows) {
+				zap.L().Error("failed to cancel workspace for deleted clerk org",
+					zap.Error(err), zap.String("org_id", orgID))
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_cancel_failed"})
+			}
+			// No workspace was ever provisioned for this org — nothing to clean up.
+		} else {
+			zap.L().Info("workspace canceled after clerk organization.deleted webhook", zap.String("org_id", orgID))
+		}
+	}
 	return c.JSON(http.StatusOK, map[string]bool{"received": true})
+}
+
+// verifyClerkSignature verifies the Svix signature Clerk attaches to webhook
+// deliveries (svix-id / svix-timestamp / svix-signature headers), matching
+// Clerk's documented verification scheme: HMAC-SHA256 of "{id}.{timestamp}.{body}"
+// keyed by the base64 payload of CLERK_WEBHOOK_SECRET (after its "whsec_" prefix).
+func verifyClerkSignature(c echo.Context, body []byte) bool {
+	secret := strings.TrimPrefix(strings.TrimSpace(os.Getenv("CLERK_WEBHOOK_SECRET")), "whsec_")
+	if secret == "" {
+		return false
+	}
+	key, err := base64.StdEncoding.DecodeString(secret)
+	if err != nil {
+		return false
+	}
+	svixID := c.Request().Header.Get("svix-id")
+	svixTimestamp := c.Request().Header.Get("svix-timestamp")
+	svixSignature := strings.TrimSpace(c.Request().Header.Get("svix-signature"))
+	if svixID == "" || svixTimestamp == "" || svixSignature == "" {
+		return false
+	}
+	h := hmac.New(sha256.New, key)
+	h.Write([]byte(svixID + "." + svixTimestamp + "." + string(body)))
+	expected := base64.StdEncoding.EncodeToString(h.Sum(nil))
+	for _, part := range strings.Fields(svixSignature) {
+		versioned := strings.SplitN(part, ",", 2)
+		if len(versioned) != 2 {
+			continue
+		}
+		if hmac.Equal([]byte(versioned[1]), []byte(expected)) {
+			return true
+		}
+	}
+	return false
 }
 
 func recordMuxWebhookEvent(c echo.Context, eventID, eventType string, body []byte) (bool, error) {

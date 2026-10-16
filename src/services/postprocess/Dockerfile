@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfdk-aac2 \
     ffmpeg \
     ca-certificates \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/postprocess /usr/local/bin/postprocess

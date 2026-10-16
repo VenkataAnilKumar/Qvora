@@ -1,6 +1,24 @@
 import { z } from "zod";
+import Stripe from "stripe";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, workspaceProcedure } from "../init";
+
+const PLAN_PRICE_ENV: Record<"starter" | "growth" | "agency", string> = {
+  starter: "STRIPE_STARTER_PRICE_ID",
+  growth: "STRIPE_GROWTH_PRICE_ID",
+  agency: "STRIPE_AGENCY_PRICE_ID",
+};
+
+function getStripeClient(): Stripe {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  if (!secretKey) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "STRIPE_SECRET_KEY is not configured",
+    });
+  }
+  return new Stripe(secretKey, { apiVersion: "2025-02-24.acacia" });
+}
 
 const GO_API_BASE_URL = process.env.GO_API_URL ?? "http://localhost:8080";
 
@@ -66,6 +84,7 @@ export const workspaceRouter = createTRPCRouter({
       plan_tier: "starter" | "growth" | "agency";
       subscription_status: "trialing" | "active" | "past_due" | "canceled";
       trial_ends_at?: string;
+      stripe_customer_id?: string | null;
     };
 
     return {
@@ -74,6 +93,7 @@ export const workspaceRouter = createTRPCRouter({
       planTier: payload.plan_tier,
       subscriptionStatus: payload.subscription_status,
       trialEndsAt: payload.trial_ends_at,
+      stripeCustomerId: payload.stripe_customer_id ?? null,
     };
   }),
 
@@ -234,5 +254,90 @@ export const workspaceRouter = createTRPCRouter({
         createdAt: payload.created_at,
         updatedAt: payload.updated_at,
       };
+    }),
+
+  // Creates a Stripe Checkout session for a plan tier. The subscription's
+  // metadata.org_id is what the Stripe webhook's deriveOrgId() already reads
+  // to route customer.subscription.updated/deleted back to this workspace —
+  // no separate customer-id lookup needed for checkout itself.
+  createCheckoutSession: workspaceProcedure
+    .input(
+      z.object({
+        planTier: z.enum(["starter", "growth", "agency"]),
+        returnPath: z.string().startsWith("/").default("/briefs"),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const priceEnvVar = PLAN_PRICE_ENV[input.planTier];
+      const priceId = process.env[priceEnvVar];
+      if (!priceId) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `${priceEnvVar} is not configured`,
+        });
+      }
+      const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
+        /\/$/,
+        "",
+      );
+      const stripe = getStripeClient();
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        line_items: [{ price: priceId, quantity: 1 }],
+        client_reference_id: ctx.orgId,
+        subscription_data: {
+          metadata: { org_id: ctx.orgId, plan_tier: input.planTier },
+        },
+        success_url: `${appUrl}${input.returnPath}?checkout=success`,
+        cancel_url: `${appUrl}${input.returnPath}?checkout=cancelled`,
+      });
+      if (!session.url) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "checkout_session_missing_url",
+        });
+      }
+      return { url: session.url };
+    }),
+
+  // Opens the Stripe customer portal. Requires stripe_customer_id to already
+  // be set — captured from the checkout.session.completed webhook event after
+  // a workspace's first successful checkout.
+  createPortalSession: workspaceProcedure
+    .input(z.object({ returnPath: z.string().startsWith("/").default("/briefs") }))
+    .mutation(async ({ input, ctx }) => {
+      const response = await fetch(`${GO_API_BASE_URL}/api/v1/workspaces/${ctx.orgId}`, {
+        method: "GET",
+        headers: buildInternalHeaders({
+          userId: ctx.userId,
+          orgId: ctx.orgId,
+          orgRole: ctx.orgRole,
+          headers: ctx.headers,
+        }),
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new TRPCError({
+          code: response.status === 404 ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR",
+          message: await parseApiError(response),
+        });
+      }
+      const payload = (await response.json()) as { stripe_customer_id?: string | null };
+      if (!payload.stripe_customer_id) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "no_stripe_customer_yet — complete a checkout first",
+        });
+      }
+      const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(
+        /\/$/,
+        "",
+      );
+      const stripe = getStripeClient();
+      const session = await stripe.billingPortal.sessions.create({
+        customer: payload.stripe_customer_id,
+        return_url: `${appUrl}${input.returnPath}`,
+      });
+      return { url: session.url };
     }),
 });

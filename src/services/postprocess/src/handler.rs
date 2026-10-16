@@ -99,6 +99,8 @@ pub async fn process(
     let watermark = req.watermark;
     let add_captions = req.add_captions;
     let script = req.script.clone();
+    let logo_r2_key = req.logo_r2_key.clone();
+    let aspect_ratio = req.aspect_ratio.clone();
 
     tokio::spawn(async move {
         let processor = ProcessorConfig {
@@ -109,6 +111,8 @@ pub async fn process(
             watermark,
             add_captions,
             script,
+            logo_r2_key,
+            aspect_ratio,
             s3_client,
             r2_bucket,
             _r2_endpoint: r2_endpoint,

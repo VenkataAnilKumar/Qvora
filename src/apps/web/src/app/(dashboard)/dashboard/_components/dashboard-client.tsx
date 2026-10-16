@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import posthog from "posthog-js";
 import MuxPlayer from "@mux/mux-player-react";
 import {
   Badge,
@@ -61,6 +62,7 @@ export function DashboardClient({ planLimitLabel, initialJobs }: DashboardClient
       setActiveJob(newJob);
       setJobs((prev) => [newJob, ...prev]);
       setFormError(null);
+      posthog.capture("job_submitted", { job_id: data.jobId, model });
     },
     onError: (err) => {
       setFormError(err.message);
