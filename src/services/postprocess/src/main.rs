@@ -1,15 +1,18 @@
-use axum::{Router, routing::{get, post}};
 use axum::http::HeaderValue;
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+mod error;
 mod handler;
 mod model;
-mod processor;
-mod error;
 mod mux;
+mod processor;
 
 /// This service is only ever called server-to-server (the Go worker invoking
 /// `/process`) — no browser is meant to hit it directly. CORS here is
@@ -39,11 +42,29 @@ fn build_cors_layer() -> CorsLayer {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Structured JSON logging
+    // Held for the life of main() — its Drop flushes pending events to Sentry.
+    // No-ops cleanly (client never actually inits) when SENTRY_DSN is unset.
+    let sentry_dsn = std::env::var("SENTRY_DSN")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    let _sentry_guard = sentry_dsn.as_deref().map(|dsn| {
+        let mut opts = sentry::ClientOptions::default().traces_sample_rate(0.1);
+        opts.release = sentry::release_name!();
+        sentry::init((dsn, opts))
+    });
+    if sentry_dsn.is_none() {
+        tracing::warn!("SENTRY_DSN not set — Sentry error tracking disabled");
+    }
+
+    // Structured JSON logging; sentry_tracing::layer() forwards tracing::error!/warn!
+    // spans as Sentry breadcrumbs/events automatically — no per-call-site changes needed.
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "postprocess=info,tower_http=info".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "postprocess=info,tower_http=info".into()),
+        )
         .with(tracing_subscriber::fmt::layer().json())
+        .with(sentry_tracing::layer())
         .init();
 
     let app = Router::new()

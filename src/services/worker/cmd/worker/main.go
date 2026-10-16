@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -14,9 +16,28 @@ import (
 	"github.com/qvora/worker/internal/task"
 )
 
+// initSentry is a no-op (returns a no-op flush func) when SENTRY_DSN is unset.
+func initSentry() func() {
+	dsn := strings.TrimSpace(os.Getenv("SENTRY_DSN"))
+	if dsn == "" {
+		return func() {}
+	}
+	if err := sentry.Init(sentry.ClientOptions{
+		Dsn:              dsn,
+		TracesSampleRate: 0.1,
+	}); err != nil {
+		zap.L().Warn("sentry init failed", zap.Error(err))
+		return func() {}
+	}
+	return func() { sentry.Flush(2 * time.Second) }
+}
+
 func main() {
 	log, _ := zap.NewProduction()
 	defer log.Sync() //nolint:errcheck
+
+	flushSentry := initSentry()
+	defer flushSentry()
 
 	// -------------------------------------------------------------------------
 	// Railway Redis — TCP only (asynq requires persistent BLPOP connection)
@@ -51,6 +72,10 @@ func main() {
 				zap.String("type", t.Type()),
 				zap.Error(err),
 			)
+			sentry.WithScope(func(scope *sentry.Scope) {
+				scope.SetTag("task_type", t.Type())
+				sentry.CaptureException(err)
+			})
 		}),
 	})
 

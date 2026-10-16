@@ -31,6 +31,8 @@ base64 = "0.22"
 hmac = "0.13"
 sha2 = "0.11"
 hex = "0.4"
+sentry = { version = "0.49.3", features = ["tracing"] }
+sentry-tracing = "0.49.3"
 
 # ffmpeg bindings — CPU-bound video processing
 # Linked against system ffmpeg in Docker; optional for local Windows development

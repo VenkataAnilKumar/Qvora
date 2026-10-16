@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"go.uber.org/zap"
@@ -16,9 +18,33 @@ import (
 	appmiddleware "github.com/qvora/api/internal/middleware"
 )
 
+// initSentry is a no-op (returns a no-op flush func) when SENTRY_DSN is unset,
+// so local/dev environments don't need it configured. No official sentry-go
+// Echo middleware is used here — that package requires echo/v5, and this API
+// is built on v4 throughout; pulling in a second major Echo version just for
+// one integration isn't worth it. Panics are forwarded to Sentry from the
+// existing Recover middleware's LogErrorFunc hook below instead.
+func initSentry() func() {
+	dsn := strings.TrimSpace(os.Getenv("SENTRY_DSN"))
+	if dsn == "" {
+		return func() {}
+	}
+	if err := sentry.Init(sentry.ClientOptions{
+		Dsn:              dsn,
+		TracesSampleRate: 0.1,
+	}); err != nil {
+		zap.L().Warn("sentry init failed", zap.Error(err))
+		return func() {}
+	}
+	return func() { sentry.Flush(2 * time.Second) }
+}
+
 func main() {
 	log, _ := zap.NewProduction()
 	defer log.Sync() //nolint:errcheck
+
+	flushSentry := initSentry()
+	defer flushSentry()
 
 	e := echo.New()
 	e.HideBanner = true
@@ -30,6 +56,7 @@ func main() {
 	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
 		LogErrorFunc: func(c echo.Context, err error, stack []byte) error {
 			log.Error("panic recovered", zap.Error(err), zap.ByteString("stack", stack))
+			sentry.CurrentHub().Recover(err)
 			return nil
 		},
 	}))
@@ -95,6 +122,8 @@ func main() {
 	// Exports
 	exports := v1.Group("/exports", appmiddleware.RequireWorkspace())
 	exports.GET("", handler.ListExports)
+	exports.POST("", handler.CreateExports, appmiddleware.RequireWriteAccess())
+	exports.GET("/:id/download", handler.DownloadExport)
 
 	// Signal (Phase 2 kickoff)
 	signalRoutes := v1.Group("/signal", appmiddleware.RequireWorkspace())
