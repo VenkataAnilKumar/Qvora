@@ -1,9 +1,9 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use reqwest::Client;
-use tracing::info;
 use chrono::Utc;
 use hmac::KeyInit;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use tracing::info;
 
 /// Mux API client for video upload and management
 /// Docs: https://docs.mux.com/docs/video-upload-api
@@ -22,9 +22,9 @@ pub struct MuxAssetResponse {
 #[derive(Debug, Deserialize, Clone)]
 #[allow(dead_code)]
 pub struct MuxAssetData {
-    pub id: String,                // asset_id
+    pub id: String, // asset_id
     pub playback_ids: Vec<MuxPlaybackId>,
-    pub status: String,            // processing, ready, failed
+    pub status: String, // processing, ready, failed
     pub created_at: String,
 }
 
@@ -32,7 +32,7 @@ pub struct MuxAssetData {
 pub struct MuxPlaybackId {
     pub id: String,
     #[allow(dead_code)]
-    pub policy: String,            // "public" or "signed"
+    pub policy: String, // "public" or "signed"
 }
 
 /// Request body for HLS upload via Mux URL
@@ -40,8 +40,8 @@ pub struct MuxPlaybackId {
 struct MuxCreateAssetRequest {
     input: MuxInput,
     playback_policy: Vec<String>, // ["signed","public"]
-    test: bool,                     // Use test environment
-    passthrough: String,            // Variant ID for webhook correlation
+    test: bool,                   // Use test environment
+    passthrough: String,          // Variant ID for webhook correlation
 }
 
 #[derive(Debug, Serialize)]
@@ -61,7 +61,11 @@ impl MuxClient {
     /// Upload video from R2 URL to Mux
     ///
     /// Creates a new Mux asset with the video URL and returns asset_id + playback_id
-    pub async fn upload_from_url(&self, r2_video_url: &str, variant_id: &str) -> Result<MuxUploadResult> {
+    pub async fn upload_from_url(
+        &self,
+        r2_video_url: &str,
+        variant_id: &str,
+    ) -> Result<MuxUploadResult> {
         info!(url = %r2_video_url, "uploading to Mux");
 
         let req = MuxCreateAssetRequest {
@@ -182,8 +186,7 @@ impl MuxClient {
     pub fn playback_url(_playback_id: &str, token: &str) -> String {
         format!(
             "https://stream.mux.com/{}.m3u8?token={}",
-            _playback_id,
-            token
+            _playback_id, token
         )
     }
 }
@@ -205,9 +208,9 @@ struct MuxTokenHeader {
 #[derive(Debug, Serialize)]
 #[allow(dead_code)]
 struct MuxTokenPayload {
-    sub: String,  // workspace_id
-    exp: u64,     // expiration
-    aud: String,  // "v" for video
+    sub: String, // workspace_id
+    exp: u64,    // expiration
+    aud: String, // "v" for video
 }
 
 #[allow(dead_code)]

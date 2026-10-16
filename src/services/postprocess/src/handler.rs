@@ -1,23 +1,36 @@
-use axum::{Json, http::StatusCode};
-use serde_json::{Value, json};
-use crate::model::{PostprocessCallbackRequest, ProcessRequest, ProcessResponse};
-use crate::processor::ProcessorConfig;
-use crate::mux::MuxClient;
 use crate::error::AppError;
+use crate::model::{PostprocessCallbackRequest, ProcessRequest, ProcessResponse};
+use crate::mux::MuxClient;
+use crate::processor::ProcessorConfig;
+use axum::{http::StatusCode, Json};
+use serde_json::{json, Value};
 
 fn classify_failure(error_text: &str) -> &'static str {
     let normalized = error_text.to_lowercase();
 
-    if normalized.contains("ffmpeg") || normalized.contains("transcode") || normalized.contains("codec") {
+    if normalized.contains("ffmpeg")
+        || normalized.contains("transcode")
+        || normalized.contains("codec")
+    {
         return "ffmpeg";
     }
-    if normalized.contains("mux") || normalized.contains("playback") || normalized.contains("asset") {
+    if normalized.contains("mux") || normalized.contains("playback") || normalized.contains("asset")
+    {
         return "mux";
     }
-    if normalized.contains("s3") || normalized.contains("r2") || normalized.contains("bucket") || normalized.contains("upload") || normalized.contains("download") {
+    if normalized.contains("s3")
+        || normalized.contains("r2")
+        || normalized.contains("bucket")
+        || normalized.contains("upload")
+        || normalized.contains("download")
+    {
         return "storage";
     }
-    if normalized.contains("timeout") || normalized.contains("dns") || normalized.contains("connection") || normalized.contains("network") {
+    if normalized.contains("timeout")
+        || normalized.contains("dns")
+        || normalized.contains("connection")
+        || normalized.contains("network")
+    {
         return "network";
     }
     if normalized.contains("callback") || normalized.contains("internal api") {
@@ -104,10 +117,10 @@ pub async fn process(
 
     tokio::spawn(async move {
         let processor = ProcessorConfig {
-			request_id: request_id.clone(),
-			job_id: job_id.clone(),
+            request_id: request_id.clone(),
+            job_id: job_id.clone(),
             variant_id: variant_id.clone(),
-			workspace_id: workspace_id.clone(),
+            workspace_id: workspace_id.clone(),
             watermark,
             add_captions,
             script,
@@ -142,7 +155,9 @@ pub async fn process(
                     mux_playable_id: Some(result.mux_playable_id.clone()),
                     duration_ms: Some(result.duration_ms),
                     error_message: None,
-                }).await {
+                })
+                .await
+                {
                     tracing::error!(
                         request_id = %request_id,
                         variant_id = %variant_id,
@@ -152,14 +167,14 @@ pub async fn process(
                 }
             }
             Err(e) => {
-				let error_text = e.to_string();
-				let error_type = classify_failure(&error_text);
+                let error_text = e.to_string();
+                let error_type = classify_failure(&error_text);
                 tracing::error!(
                     request_id = %request_id,
                     job_id = %job_id,
                     variant_id = %variant_id,
-					workspace_id = %workspace_id,
-					error_type = %error_type,
+                    workspace_id = %workspace_id,
+                    error_type = %error_type,
                     error = %e,
                     "postprocess failed"
                 );
@@ -175,7 +190,9 @@ pub async fn process(
                     mux_playable_id: None,
                     duration_ms: None,
                     error_message: Some(format!("{}: {}", error_type, error_text)),
-                }).await {
+                })
+                .await
+                {
                     tracing::error!(
                         request_id = %request_id,
                         variant_id = %variant_id,
@@ -204,8 +221,8 @@ pub async fn process(
 }
 
 async fn send_postprocess_callback(payload: PostprocessCallbackRequest) -> anyhow::Result<()> {
-    let api_base = std::env::var("API_BASE_URL")
-        .map_err(|_| anyhow::anyhow!("API_BASE_URL not set"))?;
+    let api_base =
+        std::env::var("API_BASE_URL").map_err(|_| anyhow::anyhow!("API_BASE_URL not set"))?;
 
     let internal_api_key = std::env::var("INTERNAL_API_KEY")
         .map_err(|_| anyhow::anyhow!("INTERNAL_API_KEY not set"))?;

@@ -56,19 +56,24 @@ pub struct FrameSize {
 /// unrecognized or absent value, so this never regresses current output.
 fn resolve_frame_size(aspect_ratio: Option<&str>) -> FrameSize {
     match aspect_ratio {
-        Some("1:1") => FrameSize { width: 1080, height: 1080 },
-        Some("16:9") => FrameSize { width: 1920, height: 1080 },
-        _ => FrameSize { width: 1080, height: 1920 },
+        Some("1:1") => FrameSize {
+            width: 1080,
+            height: 1080,
+        },
+        Some("16:9") => FrameSize {
+            width: 1920,
+            height: 1080,
+        },
+        _ => FrameSize {
+            width: 1080,
+            height: 1920,
+        },
     }
 }
 
 impl ProcessorConfig {
     /// Full pipeline: download -> transcode -> upload
-    pub async fn process(
-        &self,
-        input_r2_key: &str,
-        output_r2_key: &str,
-    ) -> Result<ProcessResult> {
+    pub async fn process(&self, input_r2_key: &str, output_r2_key: &str) -> Result<ProcessResult> {
         let pipeline_start = Instant::now();
         info!(
             request_id = %self.request_id,
@@ -429,10 +434,16 @@ fn transcode_video(
         if medium == media::Type::Video {
             transcoders.insert(
                 ist_index,
-                VideoTranscoder::new(&ist, &mut octx, ost_index as usize, &filter_spec, frame_size)
-                    .with_context(|| {
-                        format!("failed to initialize video transcoder for stream {ist_index}")
-                    })?,
+                VideoTranscoder::new(
+                    &ist,
+                    &mut octx,
+                    ost_index as usize,
+                    &filter_spec,
+                    frame_size,
+                )
+                .with_context(|| {
+                    format!("failed to initialize video transcoder for stream {ist_index}")
+                })?,
             );
         } else {
             let mut ost = octx
@@ -448,7 +459,8 @@ fn transcode_video(
     }
 
     octx.set_metadata(ictx.metadata().to_owned());
-    octx.write_header().context("failed to write output header")?;
+    octx.write_header()
+        .context("failed to write output header")?;
 
     for (index, _) in octx.streams().enumerate() {
         ost_time_bases[index] = octx
@@ -517,8 +529,8 @@ impl VideoTranscoder {
             .decoder()
             .video()?;
 
-        let codec = encoder::find(codec::Id::H264)
-            .ok_or_else(|| anyhow!("H.264 encoder not available"))?;
+        let codec =
+            encoder::find(codec::Id::H264).ok_or_else(|| anyhow!("H.264 encoder not available"))?;
         let mut ost = octx
             .add_stream(Some(codec))
             .context("failed to add video output stream")?;
@@ -564,7 +576,9 @@ impl VideoTranscoder {
     }
 
     fn send_eof_to_decoder(&mut self) -> Result<()> {
-        self.decoder.send_eof().context("failed to send decoder EOF")
+        self.decoder
+            .send_eof()
+            .context("failed to send decoder EOF")
     }
 
     fn send_frame_to_encoder(&mut self, frame: &frame::Video) -> Result<()> {
@@ -574,7 +588,9 @@ impl VideoTranscoder {
     }
 
     fn send_eof_to_encoder(&mut self) -> Result<()> {
-        self.encoder.send_eof().context("failed to send encoder EOF")
+        self.encoder
+            .send_eof()
+            .context("failed to send encoder EOF")
     }
 
     fn add_frame_to_filter(&mut self, frame: &frame::Video) -> Result<()> {
@@ -672,9 +688,7 @@ impl VideoTranscoder {
                     break
                 }
                 Err(ffmpeg::Error::Eof) => break,
-                Err(err) => {
-                    return Err(anyhow!(err)).context("failed to receive encoded packet")
-                }
+                Err(err) => return Err(anyhow!(err)).context("failed to receive encoded packet"),
             }
         }
 
@@ -850,7 +864,11 @@ fn build_caption_filters(script: &str, duration_secs: Option<f64>) -> Vec<String
             // Duration unknown or only one chunk — fall back to a single static
             // block for the whole clip, matching the prior behavior.
             let joined = chunks.join("\n");
-            vec![format!("drawtext=text='{}':{}", escape_drawtext(&joined), base_style)]
+            vec![format!(
+                "drawtext=text='{}':{}",
+                escape_drawtext(&joined),
+                base_style
+            )]
         }
     }
 }
