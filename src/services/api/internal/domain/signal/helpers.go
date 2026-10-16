@@ -1,19 +1,19 @@
 package signal
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	"github.com/qvora/api/internal/store"
+	appmiddleware "github.com/qvora/api/internal/middleware"
 )
 
 // ensureSignalTables creates all signal tables and indexes if they don't exist.
 func ensureSignalTables(c echo.Context) error {
-	if store.Pool() == nil {
-		return errors.New("database_not_initialized")
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
+		return err
 	}
 	ctx := c.Request().Context()
 	for _, stmt := range []string{
@@ -99,7 +99,7 @@ func ensureSignalTables(c echo.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_signal_recommendation_feedback_workspace_created ON signal_recommendation_feedback(workspace_id, created_at DESC)`,
 	} {
-		if _, err := store.Pool().Exec(ctx, stmt); err != nil {
+		if _, err := conn.Exec(ctx, stmt); err != nil {
 			return fmt.Errorf("ensureSignalTables: %w", err)
 		}
 	}

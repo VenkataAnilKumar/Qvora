@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/clerk/clerk-sdk-go/v2"
 	"github.com/clerk/clerk-sdk-go/v2/jwks"
 	"github.com/clerk/clerk-sdk-go/v2/jwt"
+	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/qvora/api/internal/db"
 	"github.com/qvora/api/internal/store"
@@ -147,6 +149,27 @@ func GetScopedQueries(c echo.Context) (*db.Queries, error) {
 // of their handle, not how they use it — a drop-in replacement for
 // store.Pool() at call sites that previously used it directly.
 func GetScopedConn(c echo.Context) (db.DBTX, error) {
+	if scope, ok := c.Get(rlsScopeKey).(*store.RequestScope); ok && scope != nil {
+		return scope.Conn(), nil
+	}
+	if store.Pool() == nil {
+		return nil, errors.New("database_not_initialized")
+	}
+	return store.Pool(), nil
+}
+
+// txBeginner is satisfied by both *pgxpool.Pool and *pgxpool.Conn. db.DBTX
+// deliberately exposes only Exec/Query/QueryRow (matching sqlc's generated
+// Queries wrapper), so call sites that need an explicit multi-statement
+// transaction need this instead of GetScopedConn's db.DBTX.
+type txBeginner interface {
+	db.DBTX
+	Begin(ctx context.Context) (pgx.Tx, error)
+}
+
+// GetScopedBeginner is GetScopedConn's counterpart for call sites using
+// pool.Begin()/conn.Begin() directly rather than single-statement Exec/Query.
+func GetScopedBeginner(c echo.Context) (txBeginner, error) {
 	if scope, ok := c.Get(rlsScopeKey).(*store.RequestScope); ok && scope != nil {
 		return scope.Conn(), nil
 	}

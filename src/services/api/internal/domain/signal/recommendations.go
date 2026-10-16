@@ -1,7 +1,6 @@
 package signal
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -54,8 +53,12 @@ func shouldRefreshRecommendations(c echo.Context, workspaceID pgtype.UUID, refre
 		return true, nil
 	}
 
+	conn, connErr := appmiddleware.GetScopedConn(c)
+	if connErr != nil {
+		return false, connErr
+	}
 	var lastGenerated pgtype.Timestamptz
-	err := store.Pool().QueryRow(
+	err := conn.QueryRow(
 		c.Request().Context(),
 		`SELECT MAX(last_generated_at)
 		 FROM signal_brief_recommendations
@@ -73,11 +76,12 @@ func shouldRefreshRecommendations(c echo.Context, workspaceID pgtype.UUID, refre
 
 // regenerateBriefRecommendations recomputes angle-level brief recommendations from signal data.
 func regenerateBriefRecommendations(c echo.Context, workspaceID pgtype.UUID, days int) error {
-	if store.Pool() == nil {
-		return errors.New("database_not_initialized")
+	conn, connErr := appmiddleware.GetScopedConn(c)
+	if connErr != nil {
+		return connErr
 	}
 
-	rows, err := store.Pool().Query(
+	rows, err := conn.Query(
 		c.Request().Context(),
 		`SELECT
 			COALESCE(v.angle, 'unknown') AS angle,
@@ -137,7 +141,7 @@ func regenerateBriefRecommendations(c echo.Context, workspaceID pgtype.UUID, day
 			fmt.Sprintf("%.2f%%", item.ctr*100) + " across " + strconv.FormatInt(item.impressions, 10) +
 			" impressions in the last " + strconv.Itoa(days) + " days."
 
-		_, execErr := store.Pool().Exec(
+		_, execErr := conn.Exec(
 			c.Request().Context(),
 			`INSERT INTO signal_brief_recommendations (
 				workspace_id, angle, suggested_hook, rationale, confidence_score, impression_volume, window_days, first_generated_at, last_generated_at
@@ -178,7 +182,8 @@ func GetSignalRecommendations(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureSignalTables(c); err != nil {
@@ -198,7 +203,7 @@ func GetSignalRecommendations(c echo.Context) error {
 		}
 	}
 
-	rows, err := store.Pool().Query(
+	rows, err := conn.Query(
 		c.Request().Context(),
 		`SELECT angle, suggested_hook, rationale, confidence_score, impression_volume, window_days, last_generated_at
 		 FROM signal_brief_recommendations
@@ -352,7 +357,11 @@ func CreateSignalRecommendationFeedback(c echo.Context) error {
 		req.Source = "brief_create_panel"
 	}
 
-	_, err := store.Pool().Exec(c.Request().Context(),
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
+	}
+	_, err = conn.Exec(c.Request().Context(),
 		`INSERT INTO signal_recommendation_feedback (workspace_id, angle, action, source, created_by)
 		 VALUES ($1, $2, $3, $4, $5)`,
 		workspaceID, req.Angle, req.Action, req.Source, claims.UserID,
@@ -388,6 +397,11 @@ func ListSignalRecommendationFeedbackByAngle(c echo.Context) error {
 		}
 	}
 
+	conn, connErr := appmiddleware.GetScopedConn(c)
+	if connErr != nil {
+		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
+	}
+
 	var rows interface {
 		Close()
 		Next() bool
@@ -397,7 +411,7 @@ func ListSignalRecommendationFeedbackByAngle(c echo.Context) error {
 	var queryErr error
 
 	if angle != "" {
-		rows, queryErr = store.Pool().Query(c.Request().Context(),
+		rows, queryErr = conn.Query(c.Request().Context(),
 			`SELECT id, angle, action, source, created_by, created_at
 			 FROM signal_recommendation_feedback
 			 WHERE workspace_id = $1 AND angle = $2
@@ -405,7 +419,7 @@ func ListSignalRecommendationFeedbackByAngle(c echo.Context) error {
 			workspaceID, angle, limit,
 		)
 	} else {
-		rows, queryErr = store.Pool().Query(c.Request().Context(),
+		rows, queryErr = conn.Query(c.Request().Context(),
 			`SELECT id, angle, action, source, created_by, created_at
 			 FROM signal_recommendation_feedback
 			 WHERE workspace_id = $1

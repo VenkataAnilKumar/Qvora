@@ -1,7 +1,6 @@
 package brief
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -59,7 +58,7 @@ func CreateBrief(c echo.Context) error {
 	if req.Model == "" {
 		req.Model = "gpt-4o"
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
@@ -130,7 +129,7 @@ func ListBriefs(c echo.Context) error {
 	if claims == nil {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
@@ -173,7 +172,7 @@ func GetBrief(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_brief_id"})
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
@@ -241,7 +240,7 @@ func UpdateBriefContent(c echo.Context) error {
 	if len(req.Angles) == 0 {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "angles_required"})
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
@@ -259,7 +258,7 @@ func UpdateBriefContent(c echo.Context) error {
 		}
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_lookup_failed"})
 	}
-	if err := ReplaceBriefContent(c.Request().Context(), b.ID, req.Angles, req.Hooks); err != nil {
+	if err := ReplaceBriefContent(c, b.ID, req.Angles, req.Hooks); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "brief_content_update_failed"})
 	}
 	updatedBrief, err := q.GetBriefByID(c.Request().Context(), db.GetBriefByIDParams{
@@ -282,12 +281,13 @@ func UpdateBriefContent(c echo.Context) error {
 
 // ReplaceBriefContent transactionally replaces all angles and hooks for a brief.
 // Exported so that other packages (e.g. regen endpoints) can reuse the logic.
-func ReplaceBriefContent(ctx context.Context, briefID pgtype.UUID, angles []BriefAngleInput, hooks []string) error {
-	pool := store.Pool()
-	if pool == nil {
-		return errors.New("database_not_initialized")
+func ReplaceBriefContent(c echo.Context, briefID pgtype.UUID, angles []BriefAngleInput, hooks []string) error {
+	ctx := c.Request().Context()
+	beginner, err := appmiddleware.GetScopedBeginner(c)
+	if err != nil {
+		return err
 	}
-	tx, err := pool.Begin(ctx)
+	tx, err := beginner.Begin(ctx)
 	if err != nil {
 		return err
 	}

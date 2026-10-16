@@ -26,10 +26,11 @@ type brandKitRecord struct {
 }
 
 func getLatestBrandKit(c echo.Context, workspaceID pgtype.UUID) (*brandKitRecord, error) {
-	if store.Pool() == nil {
-		return nil, errors.New("database_not_initialized")
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
+		return nil, err
 	}
-	row := store.Pool().QueryRow(
+	row := conn.QueryRow(
 		c.Request().Context(),
 		`SELECT id, name, logo_r2_key, primary_color, secondary_color, font_family, watermark_enabled, created_at, updated_at
 		 FROM brands
@@ -119,11 +120,12 @@ func GetWorkspace(c echo.Context) error {
 }
 
 func getStripeCustomerID(c echo.Context, workspaceID pgtype.UUID) (*string, error) {
-	if store.Pool() == nil {
-		return nil, errors.New("database_not_initialized")
+	conn, connErr := appmiddleware.GetScopedConn(c)
+	if connErr != nil {
+		return nil, connErr
 	}
 	var customerID *string
-	err := store.Pool().QueryRow(
+	err := conn.QueryRow(
 		c.Request().Context(),
 		`SELECT stripe_customer_id FROM workspaces WHERE id = $1`,
 		workspaceID,
@@ -160,10 +162,11 @@ func UpdateStripeCustomerID(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	_, err = store.Pool().Exec(
+	_, err = conn.Exec(
 		c.Request().Context(),
 		`UPDATE workspaces SET stripe_customer_id = $2, updated_at = NOW() WHERE id = $1`,
 		workspaceID, trimmed,
@@ -242,7 +245,8 @@ func UpsertBrandKit(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	brand, err := getLatestBrandKit(c, workspaceID)
@@ -260,14 +264,14 @@ func UpsertBrandKit(c echo.Context) error {
 		fontFamily = &v
 	}
 	if brand == nil {
-		_, err = store.Pool().Exec(
+		_, err = conn.Exec(
 			c.Request().Context(),
 			`INSERT INTO brands (workspace_id, name, primary_color, secondary_color, font_family, watermark_enabled)
 			 VALUES ($1, $2, $3, $4, $5, $6)`,
 			workspaceID, trimmedName, trimmedPrimaryColor, secondaryColor, fontFamily, req.WatermarkEnabled,
 		)
 	} else {
-		_, err = store.Pool().Exec(
+		_, err = conn.Exec(
 			c.Request().Context(),
 			`UPDATE brands
 			 SET name = $2,

@@ -14,10 +14,11 @@ import (
 )
 
 func ensureWorkspaceMembersTable(c echo.Context) error {
-	if store.Pool() == nil {
-		return errors.New("database_not_initialized")
+	conn, connErr := appmiddleware.GetScopedConn(c)
+	if connErr != nil {
+		return connErr
 	}
-	_, err := store.Pool().Exec(
+	_, err := conn.Exec(
 		c.Request().Context(),
 		`CREATE TABLE IF NOT EXISTS workspace_members (
 			id BIGSERIAL PRIMARY KEY,
@@ -35,10 +36,11 @@ func ensureWorkspaceMembersTable(c echo.Context) error {
 }
 
 func ensureWorkspaceUsageTable(c echo.Context) error {
-	if store.Pool() == nil {
-		return errors.New("database_not_initialized")
+	conn, connErr := appmiddleware.GetScopedConn(c)
+	if connErr != nil {
+		return connErr
 	}
-	_, err := store.Pool().Exec(
+	_, err := conn.Exec(
 		c.Request().Context(),
 		`CREATE TABLE IF NOT EXISTS workspace_usage (
 			id BIGSERIAL PRIMARY KEY,
@@ -54,7 +56,7 @@ func ensureWorkspaceUsageTable(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = store.Pool().Exec(
+	_, err = conn.Exec(
 		c.Request().Context(),
 		`CREATE TABLE IF NOT EXISTS workspace_usage_events (
 			id BIGSERIAL PRIMARY KEY,
@@ -75,13 +77,14 @@ func incrementWorkspaceUsageForVariant(c echo.Context, workspaceID pgtype.UUID, 
 // deduplicating by variantID. Exported for use by other domain packages
 // (e.g. media/webhook.go) that cannot call the private handler bridge.
 func IncrementWorkspaceUsageForVariant(c echo.Context, workspaceID pgtype.UUID, variantID pgtype.UUID) (usedVariants int64, incremented bool, err error) {
-	if store.Pool() == nil {
-		return 0, false, errors.New("database_not_initialized")
+	beginner, err := appmiddleware.GetScopedBeginner(c)
+	if err != nil {
+		return 0, false, err
 	}
 	if err := ensureWorkspaceUsageTable(c); err != nil {
 		return 0, false, err
 	}
-	tx, err := store.Pool().Begin(c.Request().Context())
+	tx, err := beginner.Begin(c.Request().Context())
 	if err != nil {
 		return 0, false, err
 	}
@@ -149,7 +152,8 @@ func GetWorkspaceUsage(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureWorkspaceUsageTable(c); err != nil {
@@ -159,7 +163,7 @@ func GetWorkspaceUsage(c echo.Context) error {
 	var lastInvoiceID *string
 	var stripeSubID *string
 	var lastResetAt pgtype.Timestamptz
-	err = store.Pool().QueryRow(
+	err = conn.QueryRow(
 		c.Request().Context(),
 		`SELECT used_variants, last_invoice_id, stripe_sub_id, last_reset_at
 		 FROM workspace_usage
@@ -220,7 +224,8 @@ func SyncWorkspaceMembership(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureWorkspaceMembersTable(c); err != nil {
@@ -228,7 +233,7 @@ func SyncWorkspaceMembership(c echo.Context) error {
 	}
 	switch eventType {
 	case "organizationmembership.created":
-		_, err = store.Pool().Exec(
+		_, err = conn.Exec(
 			c.Request().Context(),
 			`INSERT INTO workspace_members (workspace_id, clerk_membership_id, clerk_user_id, role, status)
 			 VALUES ($1, $2, $3, $4, 'active')
@@ -253,7 +258,7 @@ func SyncWorkspaceMembership(c echo.Context) error {
 			"member_status": "active",
 		})
 	case "organizationmembership.deleted":
-		_, err = store.Pool().Exec(
+		_, err = conn.Exec(
 			c.Request().Context(),
 			`UPDATE workspace_members
 			 SET status = 'removed',
@@ -306,13 +311,14 @@ func ResetWorkspaceUsage(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureWorkspaceUsageTable(c); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_usage_table_init_failed"})
 	}
-	_, err = store.Pool().Exec(
+	_, err = conn.Exec(
 		c.Request().Context(),
 		`INSERT INTO workspace_usage (workspace_id, used_variants, last_reset_at, last_invoice_id, stripe_sub_id)
 		 VALUES ($1, 0, NOW(), $2, $3)

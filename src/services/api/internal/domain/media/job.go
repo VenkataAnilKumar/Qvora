@@ -113,7 +113,7 @@ func SubmitJob(c echo.Context) error {
 		}
 		return c.JSON(http.StatusPaymentRequired, map[string]string{"error": "variant_limit_exceeded"})
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
@@ -164,7 +164,7 @@ func GetJob(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}
 	jobID := c.Param("id")
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
@@ -214,7 +214,7 @@ func UpdateJobStatus(c echo.Context) error {
 	if _, ok := AllowedJobStatuses[req.Status]; !ok {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_status"})
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
@@ -271,7 +271,7 @@ func ListJobs(c echo.Context) error {
 		}
 		limit = parsed
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
@@ -313,7 +313,7 @@ func StreamJob(c echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}
 	jobID := c.Param("id")
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}

@@ -23,14 +23,15 @@ func ListSignalConnections(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureSignalTables(c); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "signal_tables_init_failed"})
 	}
 
-	_, err = store.Pool().Exec(
+	_, err = conn.Exec(
 		c.Request().Context(),
 		`UPDATE signal_connections
 		 SET status = 'token_expired',
@@ -46,7 +47,7 @@ func ListSignalConnections(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "signal_connections_list_failed"})
 	}
 
-	rows, err := store.Pool().Query(
+	rows, err := conn.Query(
 		c.Request().Context(),
 		`SELECT platform, status, account_id, account_name, error_reason, token_expires_at, last_synced_at, created_at, updated_at
 		 FROM signal_connections
@@ -108,7 +109,8 @@ func UpsertSignalConnection(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureSignalTables(c); err != nil {
@@ -167,7 +169,7 @@ func UpsertSignalConnection(c echo.Context) error {
 		req.ErrorReason = nil
 	}
 
-	_, err = store.Pool().Exec(
+	_, err = conn.Exec(
 		c.Request().Context(),
 		`INSERT INTO signal_connections (workspace_id, platform, status, account_id, account_name, error_reason, token_expires_at, last_synced_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, NOW()))
@@ -213,7 +215,8 @@ func PatchSignalConnectionHealth(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureSignalTables(c); err != nil {
@@ -265,7 +268,7 @@ func PatchSignalConnectionHealth(c echo.Context) error {
 		lastSyncedAt = t.UTC()
 	}
 
-	result, err := store.Pool().Exec(
+	result, err := conn.Exec(
 		c.Request().Context(),
 		`UPDATE signal_connections
 		 SET status = COALESCE(NULLIF($4, ''), status),

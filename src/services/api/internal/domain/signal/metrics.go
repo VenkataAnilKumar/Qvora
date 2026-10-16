@@ -22,7 +22,8 @@ func UpsertSignalMetrics(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	beginner, err := appmiddleware.GetScopedBeginner(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureSignalTables(c); err != nil {
@@ -52,7 +53,7 @@ func UpsertSignalMetrics(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "metrics_required"})
 	}
 
-	tx, err := store.Pool().Begin(c.Request().Context())
+	tx, err := beginner.Begin(c.Request().Context())
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "signal_metrics_upsert_failed"})
 	}
@@ -139,7 +140,8 @@ func GetSignalDashboard(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureSignalTables(c); err != nil {
@@ -153,7 +155,7 @@ func GetSignalDashboard(c echo.Context) error {
 	var spendUSD float64
 	var conversions int64
 	var revenueUSD float64
-	err = store.Pool().QueryRow(
+	err = conn.QueryRow(
 		c.Request().Context(),
 		`SELECT
 			COALESCE(SUM(impressions), 0),
@@ -186,7 +188,7 @@ func GetSignalDashboard(c echo.Context) error {
 
 	var feedbackTotal int64
 	var feedbackAccepted int64
-	err = store.Pool().QueryRow(
+	err = conn.QueryRow(
 		c.Request().Context(),
 		`SELECT
 			COALESCE(COUNT(*), 0) AS feedback_total,
@@ -210,7 +212,7 @@ func GetSignalDashboard(c echo.Context) error {
 	var current7dAccepted int64
 	var previous7dTotal int64
 	var previous7dAccepted int64
-	err = store.Pool().QueryRow(
+	err = conn.QueryRow(
 		c.Request().Context(),
 		`SELECT
 			COALESCE(COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days'), 0) AS current_total,
@@ -235,7 +237,7 @@ func GetSignalDashboard(c echo.Context) error {
 	}
 	acceptanceDeltaPctPoints := current7dRate - previous7dRate
 
-	trendRows, err := store.Pool().Query(
+	trendRows, err := conn.Query(
 		c.Request().Context(),
 		`SELECT
 			(created_at AT TIME ZONE 'UTC')::date AS day,
@@ -290,7 +292,7 @@ func GetSignalDashboard(c echo.Context) error {
 		})
 	}
 
-	angleRows, err := store.Pool().Query(
+	angleRows, err := conn.Query(
 		c.Request().Context(),
 		`SELECT
 			COALESCE(v.angle, 'unknown') AS angle,
@@ -346,7 +348,7 @@ func GetSignalDashboard(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "signal_dashboard_failed"})
 	}
 
-	platformRows, err := store.Pool().Query(
+	platformRows, err := conn.Query(
 		c.Request().Context(),
 		`SELECT
 			platform,

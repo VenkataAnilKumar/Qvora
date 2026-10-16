@@ -180,7 +180,7 @@ req.AvatarProvider = strings.TrimSpace(req.AvatarProvider)
 if req.AvatarJobID == "" {
 return c.JSON(http.StatusBadRequest, map[string]string{"error": "avatar_job_id_required"})
 }
-q, err := store.Queries(c.Request().Context())
+q, err := appmiddleware.GetScopedQueries(c)
 if err != nil {
 return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 }

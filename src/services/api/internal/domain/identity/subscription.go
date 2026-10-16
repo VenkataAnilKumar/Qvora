@@ -49,14 +49,15 @@ func UpdateWorkspaceSubscription(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	var stripeSubID *string
 	if v := strings.TrimSpace(req.StripeSubscription); v != "" {
 		stripeSubID = &v
 	}
-	_, err = store.Pool().Exec(
+	_, err = conn.Exec(
 		c.Request().Context(),
 		`UPDATE workspaces
 		 SET plan_tier = $2,
@@ -120,7 +121,7 @@ func UpdateWorkspaceLifecycle(c echo.Context) error {
 			}
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "workspace_cancel_failed"})
 		}
-		q, err := store.Queries(c.Request().Context())
+		q, err := appmiddleware.GetScopedQueries(c)
 		if err != nil {
 			return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 		}
@@ -146,18 +147,19 @@ func UpdateWorkspaceLifecycle(c echo.Context) error {
 // the authenticated lifecycle endpoint and the Clerk organization.deleted webhook.
 // Returns pgx.ErrNoRows if no workspace was ever provisioned for this org.
 func CancelWorkspaceForDeletedOrg(c echo.Context, orgID string) error {
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return err
 	}
-	if store.Pool() == nil {
-		return errors.New("database_not_initialized")
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
+		return err
 	}
 	workspace, err := q.GetWorkspaceByOrgID(c.Request().Context(), orgID)
 	if err != nil {
 		return err
 	}
-	_, err = store.Pool().Exec(
+	_, err = conn.Exec(
 		c.Request().Context(),
 		`UPDATE workspaces
 		 SET sub_status = 'canceled',
@@ -175,13 +177,14 @@ func CancelWorkspaceForDeletedOrg(c echo.Context, orgID string) error {
 // scheduleSignalGDPRPurge marks a workspace for signal data deletion 90 days
 // after subscription cancellation. Declared here to avoid domain/signal → domain/identity cycle.
 func scheduleSignalGDPRPurge(c echo.Context, orgID string) {
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return
 	}
-	_, _ = store.Pool().Exec(c.Request().Context(),
+	_, _ = conn.Exec(c.Request().Context(),
 		`ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS signal_purge_at TIMESTAMPTZ`)
 	purgeAt := time.Now().UTC().Add(90 * 24 * time.Hour)
-	_, _ = store.Pool().Exec(c.Request().Context(),
+	_, _ = conn.Exec(c.Request().Context(),
 		`UPDATE workspaces
 		 SET signal_purge_at = $1, updated_at = NOW()
 		 WHERE org_id = $2 AND signal_purge_at IS NULL`,

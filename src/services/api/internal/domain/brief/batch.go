@@ -91,7 +91,7 @@ func BatchGenerateVariants(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_brief_id"})
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}

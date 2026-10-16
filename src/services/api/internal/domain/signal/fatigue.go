@@ -123,7 +123,8 @@ func DetectSignalFatigue(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureSignalTables(c); err != nil {
@@ -149,7 +150,7 @@ func DetectSignalFatigue(c echo.Context) error {
 
 	windowURL := url.QueryEscape("" + fmt.Sprintf("%d", days) + "d")
 
-	rows, err := store.Pool().Query(
+	rows, err := conn.Query(
 		c.Request().Context(),
 		`WITH daily AS (
 			SELECT
@@ -272,7 +273,7 @@ func DetectSignalFatigue(c echo.Context) error {
 		alerts = append(alerts, alert)
 
 		if persist {
-			_, execErr := store.Pool().Exec(
+			_, execErr := conn.Exec(
 				c.Request().Context(),
 				`INSERT INTO signal_fatigue_events (
 					workspace_id, variant_id, detected_on, current_ctr, peak_ctr, drop_pct, sustained_days, suggested_action, status, first_detected_at, last_detected_at
@@ -332,7 +333,8 @@ func ListSignalFatigueEvents(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	if err := ensureSignalTables(c); err != nil {
@@ -379,7 +381,7 @@ func ListSignalFatigueEvents(c echo.Context) error {
 		args = append(args, limit)
 	}
 
-	rows, err := store.Pool().Query(c.Request().Context(), query, args...)
+	rows, err := conn.Query(c.Request().Context(), query, args...)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "signal_fatigue_list_failed"})
 	}
