@@ -48,13 +48,13 @@ Product URL  →  AI Brief  →  Video Variants  →  Performance Data  →  Bet
 | Phase | Name | Status |
 |---|---|---|
 | 0 | Foundation & Infrastructure | ⚠️ Mostly complete — CI pipeline didn't actually exist until Apr 15, 2026 |
-| 1 | Core Data Layer | ⚠️ Mostly complete — RLS is currently architecturally inert, see checklist |
+| 1 | Core Data Layer | ⚠️ Mostly complete — RLS now real and proven on a local Postgres for the `asset` domain (non-superuser role + per-request scoping, empirical isolation test); 4 other domain packages and the prod DB role cutover still pending, see checklist |
 | 2 | URL Ingestion & Brief Engine | ✅ Complete |
 | 3 | Video Generation Pipeline | ⚠️ Complete, but had a P0 bug (job creation never enqueued its own pipeline) fixed Apr 15, 2026 |
-| 4 | Brand Kit & Export | ⚠️ Partial — brand kit + logo watermarking real; Export Engine backend doesn't exist at all |
+| 4 | Brand Kit & Export | ⚠️ Partial — brand kit + logo watermarking real; Export Engine backend built Oct 16, 2026 (bulk ZIP, naming, download tracking) but only MP4 1080p passthrough, no per-platform reframe yet |
 | 5 | Asset Library & Team | ⚠️ Partial — core screens built; favorites/archive/tags not built |
 | 6 | Platform, Billing & Trial | ⚠️ Partial — checkout/portal/webhooks real; trial emails and Meter API not built |
-| 7 | Polish, Observability & Launch | ⚠️ Partial — Next.js observability + CI real; Go/Rust Sentry blocked on toolchain access |
+| 7 | Polish, Observability & Launch | ⚠️ Partial — Sentry (Next.js + Go + Rust), PostHog, CI, and Langfuse all real; Better Stack, compliance checks, and launch readiness items still open |
 | 8 | Microservices Domain Extraction | ✅ Complete (this is the Phase 8 defined in `docs/06-technical` — the implementation checklist's Phase 8 is a *different*, unrelated post-launch NATS/microservices initiative; these two docs use the same number for different things, worth renaming one) |
 
 This table and the previous version disagreed with each other and with the code in multiple places before Apr 15, 2026 — treat any status claim here as current only as of that reconciliation pass, not a permanent guarantee. Full detail, including what was specifically verified vs. assumed: [Implementation checklist](docs/07-implementation/IMPLEMENTATION_CHECKLIST.md)

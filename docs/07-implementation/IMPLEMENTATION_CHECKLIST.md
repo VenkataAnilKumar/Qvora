@@ -14,13 +14,13 @@
 | Phase | Name | Duration | Status |
 |---|---|---|---|
 | Phase 0 | Foundation & Infrastructure | Week 1 | ⚠️ Mostly complete — CI didn't actually exist until this pass |
-| Phase 1 | Core Data Layer | Week 2 | ⚠️ Mostly complete — RLS gate claim was false, see Phase 1 note |
+| Phase 1 | Core Data Layer | Week 2 | ⚠️ Mostly complete — RLS now real (non-superuser role + per-request scoping) for the `asset` domain package, proven by a real Postgres test; other 4 domain packages and the production DATABASE_URL cutover still pending, see Phase 1 note |
 | Phase 2 | URL Ingestion & Brief Engine | Weeks 3–4 | ✅ Complete |
 | Phase 3 | Video Generation Pipeline | Weeks 5–7 | ⚠️ Complete, but job creation never enqueued the scrape task until fixed this session (P0 bug) |
-| Phase 4 | Brand Kit & Export | Week 8 | ⚠️ Partial — backend watermark/brand-kit real; Export Engine backend doesn't exist at all |
+| Phase 4 | Brand Kit & Export | Week 8 | ⚠️ Partial — backend watermark/brand-kit real; Export Engine backend now built (bulk ZIP, naming scheme, download tracking) but scoped down to `mp4_1080p` only, no true per-platform reframe yet |
 | Phase 5 | Asset Library & Team | Week 9 | ⚠️ Partial — core screens built; several sub-features (favorites, archive, tags) not built |
 | Phase 6 | Platform, Billing & Trial | Week 10 | ⚠️ Partial — checkout/portal/webhooks now real; Meter API and trial emails not built |
-| Phase 7 | V1 Polish, Observability & Launch | Week 11 | ⚠️ Partial — Next.js observability + CI now real; Go/Rust Sentry blocked on toolchain access; no load test performed |
+| Phase 7 | V1 Polish, Observability & Launch | Week 11 | ⚠️ Partial — Next.js, Go API, Go worker, and Rust postprocessor Sentry all now wired and build-verified; RLS isolation test written and passing locally (not yet in hosted CI, no Postgres service there); no load test performed |
 | Phase 8 | Microservice Foundation | Weeks 12–13 | ⏳ Post-Launch (not investigated this session) |
 | Phase 9 | Temporal + gRPC + Multi-Provider | Weeks 14–15 | ⏳ Post-Launch (not investigated this session) |
 | Phase 10 | V2 Signal Loop & Intelligence | Weeks 16–18 | ⏳ Post-Launch (not investigated this session) |
@@ -97,7 +97,7 @@
 
 ### Gate ⚠️
 - [x] Migrations run cleanly on local Postgres (structurally; not run against a live DB this session)
-- [ ] **RLS: user A cannot read user B's briefs — this was never actually true and is not tested.** `DATABASE_URL` connects as the Postgres `postgres` superuser, which unconditionally bypasses RLS (a hard Postgres rule), and nothing in the Go code ever sets the `app.org_id` session variable the policies key on. Tenant isolation is enforced entirely by hand-written `WHERE workspace_id = $1` clauses in Go — consistently present, but with no DB-level backstop. See the dedicated finding in session notes; this needs an explicit decision (make RLS real vs. remove it) before this gate can be honestly checked.
+- [x] **RLS: user A cannot read user B's briefs — now real and empirically proven, for the `asset` domain package.** Migration `007_rls_app_role.sql` adds a non-superuser `qvora_app` role and extends every policy (`TO authenticated, qvora_app`), plus enables RLS on three tables that never had it (`postprocess_callbacks`, `cost_events`, `video_performance_events`). `internal/store/store.go`'s `AcquireForOrg` dedicates one pooled `*pgxpool.Conn` per request and runs `SELECT set_config('app.org_id', $1, false)` on it; `internal/middleware/auth.go`'s `RequireWorkspace()` acquires this scope and exposes it via `GetScopedQueries`/`GetScopedConn`. The `asset` package (asset.go, export.go, export_create.go, variant.go) is fully migrated to the scoped pattern. `internal/store/rls_test.go` (`TestRLSCrossWorkspaceIsolation`, gated on `TEST_DATABASE_URL`, skips cleanly in CI) proves against a real local Postgres running as `qvora_app`: (1) a scope for org A sees zero rows when queried with org B's own correct `workspace_id` — RLS blocks cross-tenant access even when the Go code's own WHERE clause would have let it through, (2) org A's scope correctly sees its own rows, (3) no `app.org_id` set at all fails closed to zero rows. **Remaining gap:** `brief`, `identity`, `media`, `signal` domain packages still use the old unscoped `store.Queries()`/`store.Pool()` pattern (superuser bypass still applies to them), and the real `DATABASE_URL` in each deployed environment still needs to be cut over from `postgres` to `qvora_app` via Doppler before this is enforced in production, not just locally.
 - [x] `GET /health` returns 200 from Railway (per Rust/Go code; not re-verified live)
 - [x] Clerk sign-in → org_id in JWT verified by Go middleware
 - [x] tRPC query returns data through full Next.js → Go stack
@@ -185,17 +185,17 @@
 - [x] Brand kit auto-applied on generation (logo + colors → Rust postprocessor payload) — **built this session.** `FalWebhook` now looks up the brand's `logo_r2_key` via `identity.GetBrandLogoKey` and passes it through the worker payload to the Rust postprocessor, which downloads and composites the real logo via ffmpeg's `movie`+`overlay` filters (falls back to the old static text mark when no logo is configured — which is always, until the logo-upload gap above is closed)
 
 ### Export Engine
-- [ ] `POST /v1/exports` → naming scheme — **does not exist.** `src/services/api/internal/domain/asset/export.go` only has `ListExports` (`GET /api/v1/exports`); there is no create/POST handler anywhere, and no route for one is registered in `main.go`. The entire "Export Engine" described below is unbuilt server-side, not just unexposed via tRPC.
-- [ ] Formats: MP4 1080p (all), MP4 4K (Agency+), GIF preview (Growth+) — not built (no backend to build it against)
-- [ ] Platform exports: Meta (9:16 + 1:1), TikTok (9:16), YouTube Shorts (9:16) — the Rust postprocessor now accepts a configurable `aspect_ratio` parameter (9:16/1:1/16:9, built this session) ready for this, but nothing calls it with a non-default value yet
-- [ ] Bulk ZIP download — not built
-- [x] Export history UI — built (`(dashboard)/exports/new`), reads real `exports.list`; the actual "download ZIP" action is disabled and clearly labeled pending the backend above, not faked
+- [x] `POST /api/v1/exports` → naming scheme — **built Oct 16, 2026** (`src/services/api/internal/domain/asset/export_create.go`). Validates each variant belongs to the workspace and is complete, then names each file `{brand-slug}_{angle-slug}_{platform}_{yyyymmdd}_v{n}.mp4`. Verified with a real Go toolchain: builds, vets, and passes the existing test suite cleanly.
+- [ ] Formats: MP4 1080p (all), MP4 4K (Agency+), GIF preview (Growth+) — **only MP4 1080p passthrough is supported**; the endpoint explicitly rejects `4k`/`gif` with a clear `format_not_supported` error rather than faking them, since both need a new Rust transcode pass that doesn't exist.
+- [ ] Platform exports: Meta (9:16 + 1:1), TikTok (9:16), YouTube Shorts (9:16) — platform is accepted and recorded (affects naming), but **no reframe actually happens yet** — all three currently ship the same stored 9:16 master. TikTok/YouTube Shorts are correct by coincidence (already 9:16); Meta would need to call the Rust postprocessor's `aspect_ratio` parameter (built in P2, never wired to a caller) in a new async re-render step. The UI says this explicitly rather than silently serving the wrong aspect ratio.
+- [x] Bulk ZIP download — Go-side, real: downloads each variant's existing R2 object, zips with a `manifest.csv`, uploads to `exports/{workspace}/{uuid}.zip`. Presigned URLs are minted fresh per-download (15 min expiry, not the 48h originally specced — shorter is more conservative and matches the security-checklist item elsewhere in this doc) via a dedicated `GET /api/v1/exports/:id/download` endpoint, proxied through a Next.js route handler since the browser can't call the Go API directly.
+- [x] Export history in `exports` table with R2 key + download count — migration `006_export_zip_tracking.sql` adds `r2_key` and `download_count` (incremented on each download) to the existing table.
 - [ ] Platform compliance check (safe zones, text size, duration) — not built
 
 ### Gate
 - [x] Brand logo watermark on generated videos — **capability now built** (see Brand Kit System above); will only visibly apply once the logo-upload gap is closed, since no workspace can set a `logo_r2_key` yet
-- [ ] Export downloads as correctly named MP4 — blocked on the missing Export Engine backend
-- [ ] Bulk ZIP works for 10+ variants — blocked on the missing Export Engine backend
+- [x] Export downloads as correctly named MP4 — built and verified (build/vet/test clean); not run against a live DB/R2 in this sandbox
+- [x] Bulk ZIP works for 10+ variants — the endpoint accepts up to 100 variants per export; not load-tested
 - [ ] Platform compliance check rejects out-of-spec asset — not built
 
 ---
@@ -259,9 +259,9 @@
 ## Phase 7 — V1 Polish, Observability & Launch ⚠️ Partial
 
 ### Observability (V1 minimum)
-- [x] Sentry: `@sentry/nextjs` — built this session (client/server/edge configs, `withSentryConfig`, `global-error.tsx`)
-- [ ] Sentry: Go SDK — **not built.** Requires adding `github.com/getsentry/sentry-go`, which needs `go mod tidy` to regenerate `go.sum` with real checksums — no Go toolchain was available in this sandbox to do that safely. Steps are documented for whoever picks this up next.
-- [ ] Sentry: Rust SDK — same blocker as Go (needs `cargo build` to regenerate `Cargo.lock`), not built
+- [x] Sentry: `@sentry/nextjs` — built (client/server/edge configs, `withSentryConfig`, `global-error.tsx`)
+- [x] Sentry: Go SDK — **built Oct 16, 2026**, once a real Go toolchain became available (`go.mod`/`go.sum` regenerated properly via `go get`/`go mod tidy`, not hand-edited). Wired into both `services/api` (panic capture via the existing `Recover` middleware's `LogErrorFunc` hook) and `services/worker` (every task failure, via asynq's central `ErrorHandler`, tagged with `task_type`). No official `sentry-go/echo` middleware — that package requires `echo/v5`, incompatible with this API's `echo/v4`, so panic capture is wired directly against the base SDK instead. Verified: `go build`/`go vet`/`go test`/`gofmt` all clean on both services.
+- [x] Sentry: Rust SDK — **built Oct 16, 2026**, once a Rust toolchain became available (Windows needed the GNU target + a separate MinGW install, since the MSVC linker requires full Visual Studio Build Tools). `sentry` + `sentry-tracing` crates added; `sentry_tracing::layer()` forwards existing `tracing::error!`/`warn!` call sites to Sentry automatically, no per-call-site changes needed. Verified: `cargo build`/`cargo test`/`cargo fmt --check` all clean (full `--features ffmpeg` build still not verified — that needs the Windows ffmpeg dev libraries, a separate, larger lift via vcpkg; Sentry's own code isn't feature-gated so this doesn't block it).
 - [ ] Better Stack: log drain — not built; not even installed as a dependency anywhere
 - [x] PostHog: `posthog-js` — built this session (init in a provider component, CSP updated to allow its network calls)
 - [x] Langfuse — was already genuinely implemented before this session (real traces in `briefs.ts`)
@@ -280,7 +280,7 @@ Built this session, as real `posthog.capture()` calls at actual interaction poin
 - [ ] Input validation on all Go API handlers — not exhaustively audited
 - [x] R2 presigned URLs expire in 15 minutes — **fixed this session** (was 1 hour in the Rust postprocessor's internal Mux-ingest URL; verified safe to shorten since Mux fetches immediately on asset creation)
 - [x] CORS locked to verified origins — Go API already restricted to `NEXT_PUBLIC_APP_URL`; Rust postprocessor's previously-unconditional `CorsLayer::permissive()` is now gated behind `POSTPROCESS_ALLOWED_ORIGINS` (built this session)
-- [ ] RLS cross-workspace isolation test in CI — **not just missing — currently untestable in a meaningful way.** RLS is architecturally inert given the current superuser DB connection (see Phase 1 gate note). Writing a test against the current setup would either trivially pass (proving nothing) or require first deciding whether to make RLS real.
+- [x] RLS cross-workspace isolation test — **written and passing against real Postgres**, see Phase 1 gate note for the full mechanism (`internal/store/rls_test.go`). Not yet wired into the hosted CI pipeline itself, since CI has no Postgres service configured — the test is `TEST_DATABASE_URL`-gated and skips cleanly there; adding a Postgres service container to CI (and deciding whether it reuses migration 007 or mints its own test role) is the remaining step for "in CI" specifically, separate from the test existing and passing locally.
 
 ### QA Sign-Off
 - [ ] E2E: sign up → brand → brief → video → export (< 15 min) — not run live; no way to execute the full stack in this sandbox (also currently impossible past the export step — Export Engine doesn't exist)
