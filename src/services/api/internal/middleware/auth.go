@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"crypto/subtle"
+	"errors"
 	"net/http"
 	"os"
 	"slices"
@@ -11,7 +12,11 @@ import (
 	"github.com/clerk/clerk-sdk-go/v2/jwks"
 	"github.com/clerk/clerk-sdk-go/v2/jwt"
 	"github.com/labstack/echo/v4"
+	"github.com/qvora/api/internal/db"
+	"github.com/qvora/api/internal/store"
 )
+
+const rlsScopeKey = "rls_scope"
 
 type ClerkClaims struct {
 	UserID  string
@@ -104,9 +109,51 @@ func RequireWorkspace() echo.MiddlewareFunc {
 			if claims.OrgID == "" {
 				return c.JSON(http.StatusForbidden, map[string]string{"error": "workspace_required"})
 			}
+			// Acquire a dedicated connection with app.org_id set, so RLS policies
+			// (which key on current_setting('app.org_id', TRUE)) actually have
+			// something to check — see store.AcquireForOrg for why this can't be
+			// done on the shared pool-wrapped Queries(). Falls through without a
+			// scope if acquisition fails so routes keep working against the
+			// pre-existing pool-backed behavior rather than hard-failing every
+			// request on this still-being-proven-out code path.
+			scope, err := store.AcquireForOrg(c.Request().Context(), claims.OrgID)
+			if err == nil {
+				defer scope.Close(c.Request().Context())
+				c.Set(rlsScopeKey, scope)
+			}
 			return next(c)
 		}
 	}
+}
+
+// GetScopedQueries returns the request-scoped *db.Queries set by
+// RequireWorkspace, with RLS actually enforced (a dedicated connection with
+// app.org_id set). Falls back to the shared pool-backed store.Queries — which,
+// under the `postgres` superuser DATABASE_URL still configured today, bypasses
+// RLS entirely — if no scope is present (e.g. internal/webhook routes that
+// don't go through RequireWorkspace, or if scope acquisition failed).
+// Domain handlers should prefer this over calling store.Queries directly
+// wherever the request is workspace-scoped.
+func GetScopedQueries(c echo.Context) (*db.Queries, error) {
+	if scope, ok := c.Get(rlsScopeKey).(*store.RequestScope); ok && scope != nil {
+		return scope.Queries, nil
+	}
+	return store.Queries(c.Request().Context())
+}
+
+// GetScopedConn is GetScopedQueries' counterpart for call sites using raw SQL
+// via store.Pool() directly rather than sqlc's generated Queries wrapper.
+// Returns db.DBTX (Exec/Query/QueryRow) so call sites change only the source
+// of their handle, not how they use it — a drop-in replacement for
+// store.Pool() at call sites that previously used it directly.
+func GetScopedConn(c echo.Context) (db.DBTX, error) {
+	if scope, ok := c.Get(rlsScopeKey).(*store.RequestScope); ok && scope != nil {
+		return scope.Conn(), nil
+	}
+	if store.Pool() == nil {
+		return nil, errors.New("database_not_initialized")
+	}
+	return store.Pool(), nil
 }
 
 // RequireWriteAccess enforces read-only access for viewers.

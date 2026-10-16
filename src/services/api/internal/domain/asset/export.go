@@ -21,10 +21,11 @@ func ListExports(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	rows, err := store.Pool().Query(
+	rows, err := conn.Query(
 		c.Request().Context(),
 		`SELECT id, variant_id, destination, status, created_at, updated_at
 		 FROM exports

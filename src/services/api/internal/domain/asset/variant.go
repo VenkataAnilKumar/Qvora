@@ -15,7 +15,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/qvora/api/internal/db"
 	appmiddleware "github.com/qvora/api/internal/middleware"
-	"github.com/qvora/api/internal/store"
 )
 
 func isVariantPlaybackReady(status string, muxAssetID *string, muxPlaybackID *string) bool {
@@ -37,7 +36,7 @@ func GetVariantPlaybackURL(c echo.Context) error {
 	if claims == nil {
 		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
@@ -95,7 +94,7 @@ func UpdateVariantFalRequest(c echo.Context) error {
 	if err := c.Bind(&body); err != nil || strings.TrimSpace(body.FalRequestID) == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "fal_request_id_required"})
 	}
-	q, err := store.Queries(c.Request().Context())
+	q, err := appmiddleware.GetScopedQueries(c)
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}

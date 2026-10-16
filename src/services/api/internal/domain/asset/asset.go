@@ -21,10 +21,11 @@ func ListAssets(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	rows, err := store.Pool().Query(
+	rows, err := conn.Query(
 		c.Request().Context(),
 		`SELECT id, job_id, angle, status, mux_asset_id, mux_playback_id, r2_key, duration_secs, created_at, updated_at
 		 FROM variants
@@ -94,14 +95,15 @@ func DeleteAsset(c echo.Context) error {
 	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
-	if store.Pool() == nil {
+	conn, err := appmiddleware.GetScopedConn(c)
+	if err != nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "database_unavailable"})
 	}
 	parsedAssetID, err := util.ParseUUID(assetID)
 	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_asset_id"})
 	}
-	result, err := store.Pool().Exec(
+	result, err := conn.Exec(
 		c.Request().Context(),
 		`DELETE FROM variants WHERE id = $1 AND workspace_id = $2`,
 		parsedAssetID, workspaceID,
