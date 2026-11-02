@@ -55,7 +55,8 @@ Product URL  →  AI Brief  →  Video Variants  →  Performance Data  →  Bet
 | 5 | Asset Library & Team | ⚠️ Partial — core screens built; favorites/archive/tags not built |
 | 6 | Platform, Billing & Trial | ⚠️ Partial — checkout/portal/webhooks real; trial emails and Meter API not built |
 | 7 | Polish, Observability & Launch | ⚠️ Partial — Sentry (Next.js + Go + Rust), PostHog, CI, and Langfuse all real; Better Stack, compliance checks, and launch readiness items still open |
-| 8 | Microservices Domain Extraction | ✅ Complete (this is the Phase 8 defined in `docs/06-technical` — the implementation checklist's Phase 8 is a *different*, unrelated post-launch NATS/microservices initiative; these two docs use the same number for different things, worth renaming one) |
+| 8a | API Domain Layer Extraction (in-process Go packages) | ✅ Complete — business logic lives in `services/api/internal/domain/*`; this is a V1 refactor, **not** a separate service split |
+| 8 (checklist) | Microservice Foundation (NATS JetStream, separate services) | ⏳ Post-Launch — this is the "Phase 8" referenced by the `docs/06-technical` target-architecture docs and the implementation checklist |
 
 This table and the previous version disagreed with each other and with the code in multiple places before Apr 15, 2026 — treat any status claim here as current only as of that reconciliation pass, not a permanent guarantee. Full detail, including what was specifically verified vs. assumed: [Implementation checklist](docs/07-implementation/IMPLEMENTATION_CHECKLIST.md)
 
@@ -72,7 +73,7 @@ This table and the previous version disagreed with each other and with the code 
 | `services/worker` | Go + asynq v0.26 | Async job processing (video, TTS, lip-sync) |
 | `services/postprocess` | Rust Axum + ffmpeg-sys | CPU-bound video post-processing only |
 
-### API Domain Layer (Phase 8)
+### API Domain Layer (Phase 8a — in-process, V1)
 
 All business logic lives in typed domain packages — handlers are thin single-line delegates:
 
